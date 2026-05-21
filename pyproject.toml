@@ -33,6 +33,7 @@ agentarena = "agentarena_local.cli:app"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "-p no:cacheprovider"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentarena_local", "src/agentarena"]
