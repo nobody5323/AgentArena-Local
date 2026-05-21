@@ -29,6 +29,7 @@ function App() {
   const [jobId, setJobId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [timeoutSeconds, setTimeoutSeconds] = useState(120);
+  const [preview, setPreview] = useState(null);
   const cursorAvailable = agents.some((agent) => agent.name === "cursor" && agent.gui);
 
   const selectedLabel = useMemo(() => selectedAgents.join(", "), [selectedAgents]);
@@ -133,10 +134,19 @@ function App() {
     }
   }
 
-  function openReport(kind) {
+  async function openReport(kind) {
     const label = kind === "dashboard" ? "仪表盘" : "报告";
-    window.open(`${API_BASE}/api/reports/file/${kind}`, "_blank", "noopener,noreferrer");
-    setLogs([`正在打开${label}。如果页面显示 404，请先生成${label}。`]);
+    const url = `${API_BASE}/api/reports/file/${kind}?t=${Date.now()}`;
+    try {
+      const response = await fetch(url, { method: "GET", cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      setPreview({ kind, label, url });
+      setLogs([`已在下方打开${label}预览。`]);
+    } catch (error) {
+      setLogs([`${label}还没有可打开的内容，请先点击“生成${label}”。`]);
+    }
   }
 
   async function openCursor() {
@@ -297,6 +307,19 @@ function App() {
             </div>
           </div>
         </section>
+
+        {preview && (
+          <section className="panel preview-panel">
+            <div className="panel-title">
+              <div>
+                <p>内容预览</p>
+                <h3>{preview.label}</h3>
+              </div>
+              <button className="pill" onClick={() => setPreview(null)}>关闭预览</button>
+            </div>
+            <iframe className="report-frame" src={preview.url} title={preview.label} />
+          </section>
+        )}
       </section>
     </main>
   );
