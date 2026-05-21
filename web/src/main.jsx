@@ -142,7 +142,17 @@ function App() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      setPreview({ kind, label, url });
+      const html = await response.text();
+      if (kind === "report") {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const styles = Array.from(doc.head.querySelectorAll("style"))
+          .map((style) => style.textContent || "")
+          .join("\n");
+        setPreview({ kind, label, bodyHtml: doc.body.innerHTML, styles });
+      } else {
+        const board = await api("/api/leaderboard");
+        setPreview({ kind, label, rows: board.rows || [], html });
+      }
       setLogs([`已在下方打开${label}预览。`]);
     } catch (error) {
       setLogs([`${label}还没有可打开的内容，请先点击“生成${label}”。`]);
@@ -317,7 +327,31 @@ function App() {
               </div>
               <button className="pill" onClick={() => setPreview(null)}>关闭预览</button>
             </div>
-            <iframe className="report-frame" src={preview.url} title={preview.label} />
+            {preview.kind === "report" ? (
+              <div className="report-html">
+                <style>{preview.styles}</style>
+                <div dangerouslySetInnerHTML={{ __html: preview.bodyHtml }} />
+              </div>
+            ) : preview.kind === "dashboard" ? (
+              <div className="dashboard-preview">
+                {preview.rows.length ? (
+                  preview.rows.map((row) => (
+                    <div className="dashboard-row" key={`${row.Rank}-${row.Agent}-${row.Task}`}>
+                      <span className="rank">#{row.Rank}</span>
+                      <strong>{row.Agent}</strong>
+                      <span>{row.Task}</span>
+                      <span>{row.Type}</span>
+                      <b>{row.Score}</b>
+                      <span>{row.Tests}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="empty">还没有可展示的仪表盘数据，请先运行一次评测。</p>
+                )}
+              </div>
+            ) : (
+              <iframe className="report-frame" srcDoc={preview.html} title={preview.label} />
+            )}
           </section>
         )}
       </section>

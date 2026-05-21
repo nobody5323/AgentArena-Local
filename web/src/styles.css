@@ -295,14 +295,46 @@ button.pill {
   background: white;
 }
 
+.report-html {
+  max-height: 720px;
+  overflow: auto;
+  border: 1px solid rgba(14, 165, 233, 0.16);
+  border-radius: 18px;
+  background: white;
+  padding: 1rem;
+}
+
+.dashboard-preview {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dashboard-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 1.4fr 100px 80px 90px;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid rgba(14, 165, 233, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.9rem;
+}
+
 @media (max-width: 820px) {
   .table-row {
     grid-template-columns: 44px 1fr 70px;
   }
 
+  .dashboard-row {
+    grid-template-columns: 44px 1fr 70px;
+  }
+
   .table-row span:nth-child(3),
   .table-row span:nth-child(4),
-  .table-row span:nth-child(5) {
+  .table-row span:nth-child(5),
+  .dashboard-row span:nth-child(3),
+  .dashboard-row span:nth-child(4),
+  .dashboard-row span:nth-child(6) {
     display: none;
   }
 }
