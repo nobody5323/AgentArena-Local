@@ -15,3 +15,8 @@
 - Verification passed: `python -m pytest` reported 6 passed.
 - CLI smoke checks passed for `validate examples/python_debug_login/task.yaml` and `init .agentarena-smoke`.
 - Added `.gitignore` for Python build/cache files, local AgentArena runtime data, and smoke artifacts.
+- Initialized the local Git repository.
+- Added the workspace to Git `safe.directory` after Git reported dubious ownership between sandbox and Windows user identities.
+- Created the initial commit: `1d774c9 Initial AgentArena Local v0.1`.
+- Renamed the default branch to `main`.
+- Checked for GitHub CLI; `gh` is not installed, so remote repository creation cannot be completed from the available local tooling without a remote URL or another authenticated integration.
