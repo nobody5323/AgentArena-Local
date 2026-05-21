@@ -131,14 +131,12 @@ scatter plots.
 
 ```powershell
 agentarena gui
-cd web
-npm install
-npm run dev
 ```
 
-Open `http://127.0.0.1:5173`. The Web GUI is a bright anime-inspired benchmark
-console using Lightswind UI styling. It currently provides the visual shell for
-project/task selection, agent selection, leaderboard, reports, and run logs.
+Open `http://127.0.0.1:5173`. The command starts the FastAPI backend on
+`http://127.0.0.1:8765` and the Vite Web GUI on port `5173`. In v0.5 the GUI
+uses Chinese interface text, can start non-interactive agent runs, launch Cursor
+GUI worktrees, refresh the live leaderboard, and generate reports or dashboards.
 
 ## Historical Runs
 

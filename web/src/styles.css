@@ -30,6 +30,7 @@ body {
 }
 
 .pill {
+  cursor: default;
   border-radius: 999px;
   border: 1px solid rgba(244, 114, 182, 0.2);
   background: rgba(255, 255, 255, 0.74);
@@ -37,6 +38,20 @@ body {
   font-size: 0.86rem;
   font-weight: 800;
   color: #be185d;
+}
+
+button.pill {
+  cursor: pointer;
+}
+
+.pill.good {
+  border-color: rgba(16, 185, 129, 0.28);
+  color: #047857;
+}
+
+.pill.warn {
+  border-color: rgba(244, 63, 94, 0.28);
+  color: #be123c;
 }
 
 .shine-btn,
@@ -47,6 +62,12 @@ body {
   padding: 0 1.2rem;
   font-weight: 950;
   cursor: pointer;
+}
+
+.shine-btn:disabled,
+.soft-btn:disabled {
+  cursor: wait;
+  opacity: 0.66;
 }
 
 .shine-btn {
@@ -60,6 +81,11 @@ body {
   border: 1px solid rgba(244, 114, 182, 0.25);
   background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 16px 36px rgba(14, 165, 233, 0.12);
+}
+
+.soft-btn.danger {
+  color: #be123c;
+  border-color: rgba(244, 63, 94, 0.3);
 }
 
 .mascot-card,
@@ -112,7 +138,8 @@ body {
   font-weight: 900;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   border: 1px solid rgba(244, 114, 182, 0.18);
   border-radius: 18px;
@@ -123,6 +150,10 @@ body {
   padding: 0.95rem 1rem;
 }
 
+.field select {
+  appearance: none;
+}
+
 .agent-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -130,12 +161,26 @@ body {
 }
 
 .agent {
+  cursor: pointer;
   border: 1px solid rgba(14, 165, 233, 0.16);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.72);
   color: #0369a1;
   font-weight: 950;
   padding: 0.95rem 0.75rem;
+}
+
+.agent:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.agent small {
+  display: block;
+  margin-top: 0.18rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  opacity: 0.72;
 }
 
 .agent.active {
@@ -214,6 +259,8 @@ body {
 
 .terminal {
   min-height: 183px;
+  max-height: 310px;
+  overflow: auto;
   border-radius: 22px;
   background: #1e1b4b;
   color: #dbeafe;
@@ -221,6 +268,15 @@ body {
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
   font-size: 0.88rem;
   line-height: 1.8;
+}
+
+.empty {
+  margin: 0;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #64748b;
+  font-weight: 800;
+  padding: 1rem;
 }
 
 .terminal p {

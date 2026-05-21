@@ -66,3 +66,10 @@
 - Updated `agentarena gui` to show Web GUI launch instructions.
 - Added Web GUI smoke tests.
 - Verification passed: `npm run build` in `web/`, `python -m pytest`, and `python scripts/release.py`.
+- Fixed Web GUI connectivity by adding a FastAPI backend, wiring React buttons to `/api/*`, making `agentarena gui` start API plus Vite together, and disabling CLI-only manual agents in the Web UI.
+- Verification passed: `python -m pytest` reported 28 passed, `npm run build` passed, and FastAPI smoke requests for health/options/leaderboard succeeded.
+- Diagnosed WebGUI Codex run failure `[WinError 5]` as Windows CLI shim execution trouble; updated CLI agent adapters to prefer `.cmd/.exe` on Windows and convert process start `OSError` into an agent result instead of failing the whole Web job.
+- Diagnosed Codex's next WebGUI runtime failure `stdout is not a terminal`; updated Codex adapter to use `codex exec --sandbox workspace-write --skip-git-repo-check` for non-interactive benchmark runs.
+- Hardened CLI agent timeout handling by switching to `Popen.communicate(timeout=...)` and killing the process tree on timeout; added regression coverage.
+- Improved WebGUI long-running-run behavior: Web runs now default to 120-second agent timeout, expose a timeout input, log heartbeat messages while agents are still running, and provide a Stop button backed by `/api/jobs/{job_id}/cancel`.
+- Added Cursor GUI launching from WebGUI: `/api/cursor/session` creates an isolated worktree, writes `AGENTARENA_TASK.md`, and opens Cursor on that worktree; the frontend now shows an `Open Cursor` button and marks Cursor as `gui`.

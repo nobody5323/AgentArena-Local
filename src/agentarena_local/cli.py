@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Annotated
@@ -142,6 +144,7 @@ def _run_one_agent(
     config: AppConfig | None = None,
     agents_md_source: Path | None = None,
     variant: str | None = None,
+    on_agent_process: object | None = None,
 ) -> dict[str, object]:
     agent = get_agent(agent_name)
     if config is not None:
@@ -176,6 +179,13 @@ def _run_one_agent(
             )
         elif not agent.is_available():
             agent_result = _unavailable_agent_result(agent_name)
+        elif on_agent_process is not None and hasattr(agent, "run_with_callback"):
+            agent_result = agent.run_with_callback(
+                _instruction_for(task),
+                worktree.path,
+                timeout=timeout,
+                on_process=on_agent_process,
+            )
         else:
             agent_result = agent.run(_instruction_for(task), worktree.path, timeout=timeout)
 
@@ -856,19 +866,40 @@ def dashboard() -> None:
 
 @app.command()
 def gui() -> None:
-    """Show how to launch the Web GUI."""
+    """Launch the FastAPI-backed Web GUI."""
     web_dir = Path.cwd() / "web"
     if not web_dir.exists():
         console.print("[red]Web GUI directory not found.[/red]")
         raise typer.Exit(code=1)
-    console.print("[green]AgentArena Web GUI is ready.[/green]")
-    console.print("Run these commands:")
-    console.print("")
-    console.print("  cd web")
-    console.print("  npm install")
-    console.print("  npm run dev")
-    console.print("")
-    console.print("Then open http://127.0.0.1:5173")
+
+    api_command = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "agentarena_local.web_api:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+    ]
+    web_command = ["npm", "run", "dev"]
+    console.print("[green]Starting AgentArena Web GUI[/green]")
+    console.print("API: http://127.0.0.1:8765")
+    console.print("Web: http://127.0.0.1:5173")
+    npm_executable = shutil.which("npm.cmd") or shutil.which("npm")
+    if npm_executable is None:
+        console.print("[red]npm was not found on PATH. Install Node.js 18+ to run the Web GUI.[/red]")
+        raise typer.Exit(code=1)
+    web_command = [npm_executable, "run", "dev"]
+    api_process = subprocess.Popen(api_command, cwd=Path.cwd())
+    try:
+        web_process = subprocess.Popen(web_command, cwd=web_dir)
+        try:
+            web_process.wait()
+        finally:
+            web_process.terminate()
+    finally:
+        api_process.terminate()
 
 
 REPORT_TEMPLATE = """

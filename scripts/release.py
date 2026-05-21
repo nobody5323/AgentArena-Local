@@ -5,6 +5,7 @@ import sys
 import tempfile
 import zipfile
 import os
+import tomllib
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -78,7 +79,8 @@ def build_wheel() -> bool:
 
 def build_offline_wheel() -> bool:
     name = "agentarena_local"
-    version = "0.4.0"
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    version = pyproject["project"]["version"]
     dist_dir = ROOT / "dist"
     dist_dir.mkdir(exist_ok=True)
     wheel_path = dist_dir / f"{name}-{version}-py3-none-any.whl"

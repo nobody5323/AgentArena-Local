@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agentarena-local"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local multi-dimensional benchmark platform for AI coding agents."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,8 @@ authors = [
   { name = "AgentArena Local Contributors" }
 ]
 dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn>=0.30.0",
   "typer>=0.12.0",
   "rich>=13.7.0",
   "pydantic>=2.6.0",

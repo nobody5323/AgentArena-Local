@@ -16,3 +16,12 @@ def test_web_gui_uses_lightswind() -> None:
 
     assert "vendor/lightswind.css" in main
     assert '"lightswind"' in package
+
+
+def test_web_gui_has_api_hooks() -> None:
+    main = Path("web/src/main.jsx").read_text(encoding="utf-8")
+
+    assert "http://127.0.0.1:8765" in main
+    assert "/api/run" in main
+    assert "/api/cursor/session" in main
+    assert "onClick={runBenchmark}" in main
