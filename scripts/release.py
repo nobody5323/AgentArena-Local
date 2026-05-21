@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import zipfile
+import os
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -121,8 +123,9 @@ def build_offline_wheel() -> bool:
 
 
 def main() -> int:
+    release_tmp = str(Path(tempfile.gettempdir()) / f"agentarena-release-pytest-{os.getpid()}")
     checks = [
-        ("pytest", run([sys.executable, "-m", "pytest", "--basetemp=.release_pytest_tmp"])),
+        ("pytest", run([sys.executable, "-m", "pytest", f"--basetemp={release_tmp}"])),
         ("README", check_readme()),
         ("examples", check_examples()),
         ("pyproject.toml", check_pyproject()),
