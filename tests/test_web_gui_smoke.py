@@ -24,4 +24,5 @@ def test_web_gui_has_api_hooks() -> None:
     assert "http://127.0.0.1:8765" in main
     assert "/api/run" in main
     assert "/api/cursor/session" in main
+    assert "/api/reports/file" in main
     assert "onClick={runBenchmark}" in main

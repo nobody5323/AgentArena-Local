@@ -11,6 +11,7 @@ from typing import Literal
 
 import yaml
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -113,15 +114,30 @@ def _task_title(task_file: Path) -> str:
 
 
 def _discover_tasks(root: Path) -> list[dict[str, str]]:
-    files = sorted(root.glob("examples/**/task.yaml"))
-    configured = root / "tasks"
-    if configured.exists():
-        files.extend(sorted(configured.glob("**/*.yaml")))
+    ignored_parts = {
+        ".agentarena",
+        ".git",
+        ".pytest_cache",
+        ".pytest_tmp",
+        ".agentarena_pytest_tmp",
+        ".release_pytest_tmp",
+        "dist",
+        "node_modules",
+    }
+    files = [
+        path
+        for path in sorted([*root.rglob("task.yaml"), *root.rglob("task.yml")])
+        if not any(part in ignored_parts for part in path.relative_to(root).parts)
+    ]
     seen: set[Path] = set()
     tasks: list[dict[str, str]] = []
     for task_file in files:
         resolved = task_file.resolve()
         if resolved in seen:
+            continue
+        try:
+            task = load_task(resolved)
+        except Exception:
             continue
         seen.add(resolved)
         tasks.append(
@@ -129,10 +145,16 @@ def _discover_tasks(root: Path) -> list[dict[str, str]]:
                 "path": str(task_file.relative_to(root)).replace("\\", "/")
                 if resolved.is_relative_to(root.resolve())
                 else str(resolved),
-                "title": _task_title(task_file),
+                "title": task.title,
+                "type": task.type.value,
             }
         )
     return tasks
+
+
+def _report_path(kind: Literal["report", "dashboard"]) -> Path:
+    reports_dir = load_config(Path.cwd()).reports_dir
+    return reports_dir / ("dashboard.html" if kind == "dashboard" else "latest-report.html")
 
 
 def _instruction_markdown(task_file: Path) -> str:
@@ -373,11 +395,18 @@ def create_app() -> FastAPI:
 
         if request.kind == "dashboard":
             dashboard()
-            path = load_config(Path.cwd()).reports_dir / "dashboard.html"
+            path = _report_path("dashboard")
         else:
             report()
-            path = load_config(Path.cwd()).reports_dir / "latest-report.html"
+            path = _report_path("report")
         return {"path": _json_path(path), "kind": request.kind}
+
+    @app.get("/api/reports/file/{kind}")
+    def report_file(kind: Literal["report", "dashboard"]) -> FileResponse:
+        path = _report_path(kind)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail=f"{kind} has not been generated yet")
+        return FileResponse(path, media_type="text/html", filename=path.name)
 
     @app.post("/api/cursor/session")
     def cursor_session(request: CursorSessionRequest) -> dict[str, object]:

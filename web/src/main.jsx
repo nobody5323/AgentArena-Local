@@ -133,6 +133,12 @@ function App() {
     }
   }
 
+  function openReport(kind) {
+    const label = kind === "dashboard" ? "仪表盘" : "报告";
+    window.open(`${API_BASE}/api/reports/file/${kind}`, "_blank", "noopener,noreferrer");
+    setLogs([`正在打开${label}。如果页面显示 404，请先生成${label}。`]);
+  }
+
   async function openCursor() {
     setLogs(["正在打开 Cursor 任务会话..."]);
     try {
@@ -187,7 +193,9 @@ function App() {
               {busy && <button className="soft-btn danger" onClick={cancelRun}>停止</button>}
               <button className="soft-btn" disabled={busy || !cursorAvailable} onClick={openCursor}>打开 Cursor</button>
               <button className="soft-btn" disabled={busy} onClick={() => makeReport("dashboard")}>生成仪表盘</button>
+              <button className="soft-btn" disabled={busy} onClick={() => openReport("dashboard")}>打开仪表盘</button>
               <button className="soft-btn" disabled={busy} onClick={() => makeReport("report")}>生成报告</button>
+              <button className="soft-btn" disabled={busy} onClick={() => openReport("report")}>打开报告</button>
             </div>
           </section>
 
@@ -215,7 +223,7 @@ function App() {
                     <span>任务 YAML</span>
                     <select value={taskFile} onChange={(event) => setTaskFile(event.target.value)}>
                       {tasks.map((task) => (
-                        <option key={task.path} value={task.path}>{task.title} - {task.path}</option>
+                        <option key={task.path} value={task.path}>{task.title} [{task.type}] - {task.path}</option>
                       ))}
                       {!tasks.length && <option value={taskFile}>{taskFile}</option>}
                     </select>
