@@ -1,7 +1,7 @@
 id: python-feature-todo-filter
 title: Add todo status filtering
 type: generation
-repo: ./repo
+repo: ../..
 description: >
   The todo app can list all items but cannot filter by completion status.
 instructions: >
@@ -14,11 +14,11 @@ success_criteria:
 test:
   commands:
     - name: pytest
-      command: pytest
+      command: pytest examples/python_feature_todo_filter/repo/tests
       timeout_seconds: 120
 expected_files_may_change:
-  - "src/**"
-  - "tests/**"
+  - "examples/python_feature_todo_filter/repo/src/**"
+  - "examples/python_feature_todo_filter/repo/tests/**"
 feature_checks:
   required_patterns:
     - "filter"

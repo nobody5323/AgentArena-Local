@@ -1,63 +1,90 @@
 # AgentArena Local
 
-AgentArena Local is a local evaluation platform for comparing AI coding agents in your own Git repositories.
+AgentArena Local is a local benchmark platform for comparing AI coding agents in
+your own Git repositories. It runs each agent in an isolated Git worktree,
+collects diffs, runs tests, checks constraints, scores results, and generates
+leaderboards plus static reports.
 
-## v0.3
+## Features
 
-The current version includes:
+- Multi-agent adapters: Claude, Codex, Gemini, Aider, Manual, Cursor, Cline, Windsurf
+- Debug, Planning, and Feature Slice Generation evaluations
+- Git worktree isolation for every agent run
+- `task.yaml` validation with Pydantic
+- setup/test command execution with logs
+- diff metrics, constraints, scoring, and failure analysis
+- AGENTS.md A/B testing
+- Rich CLI leaderboards and historical run browser
+- Static HTML report and Plotly.js dashboard
+- PySide6 GUI for local benchmark runs
+- PyInstaller scripts for Windows EXE builds
 
-- Typer CLI
-- `agentarena init`
-- `agentarena validate <task.yaml>`
-- `agentarena run`
-- `agentarena leaderboard`
-- `agentarena report --format html`
-- `agentarena dashboard`
-- Pydantic task schema
-- task types: `planning`, `debug`, `generation`
-- agent adapters for `manual`, `claude`, `codex`, `gemini`, and `aider`
-- Git worktree isolation
-- diff, constraints, scoring, failure analysis, and saved JSON results
-- Planning Evaluation with `plan.md` output and keyword scoring
-- Feature Slice Generation checks
-- AGENTS.md A/B tests
-- manual adapters for Cursor, Cline, and Windsurf
-- task-type and overall leaderboards
-- example task
-- pytest tests
+## Installation
+
+```powershell
+pip install -e ".[dev]"
+```
+
+Python 3.11+ is recommended. GUI usage requires PySide6, which is included in the
+project dependencies.
 
 ## Quick Start
 
 ```powershell
-pip install -e ".[dev]"
 agentarena init
 agentarena validate examples/python_debug_login/task.yaml
 agentarena run --agents claude,codex,manual --task examples/python_debug_login/task.yaml
 agentarena leaderboard
 agentarena report --format html
 agentarena dashboard
-pytest
 ```
 
-Run results are saved under `.agentarena/runs/<run_id>_<task_id>/<agent_name>/`.
-Reports are saved under `.agentarena/reports/`.
+Results are saved under `.agentarena/runs/`. Reports are saved under
+`.agentarena/reports/`.
+
+## Claude vs Codex
+
+```powershell
+agentarena run --agents claude,codex --task examples/python_debug_login/task.yaml
+agentarena leaderboard --type debug
+```
+
+## Cursor / Cline / Windsurf Manual Mode
+
+These adapters print the isolated worktree path and wait for you to open that
+directory in the chosen tool. Press Enter in the terminal when the manual run is
+finished.
+
+```powershell
+agentarena run --agent cursor --task examples/python_feature_todo_filter/task.yaml --keep-worktree
+agentarena run --agent cline --task examples/python_feature_todo_filter/task.yaml --keep-worktree
+agentarena run --agent windsurf --task examples/python_feature_todo_filter/task.yaml --keep-worktree
+```
 
 ## Planning Evaluation
 
-Planning tasks should produce a plan without changing code. AgentArena saves the
-agent output as `plan.md`, scores expected keyword coverage, and records
-`planning_modified_code` if the worktree has a diff.
+Planning tasks should not modify code. AgentArena stores agent output as
+`plan.md`, scores expected keyword coverage, and records `planning_modified_code`
+if a diff appears.
 
 ```powershell
 agentarena run --agents claude,codex --task examples/planning_student_filter/task.yaml
 agentarena leaderboard --type planning
 ```
 
+## Debug Evaluation
+
+Debug tasks focus on fixing an existing bug with tests and constraints.
+
+```powershell
+agentarena run --agents claude,codex,manual --task examples/python_debug_login/task.yaml
+```
+
 ## Feature Slice Generation
 
-Generation tasks are small changes inside an existing project. Use
-`expected_files_may_change` as soft scope guidance and `feature_checks` for
-required or forbidden diff patterns.
+Generation tasks implement a small feature inside an existing project. Use
+`expected_files_may_change` and `feature_checks` in `task.yaml` to evaluate
+feature completeness.
 
 ```powershell
 agentarena run --agents claude,codex --task examples/python_feature_todo_filter/task.yaml
@@ -66,35 +93,84 @@ agentarena leaderboard --type generation
 
 ## AGENTS.md A/B Test
 
-Variants live in subdirectories that each contain an `AGENTS.md` file.
-
 ```powershell
 agentarena abtest --agents claude,codex --task examples/agents_md_abtest/task.yaml --variants examples/agents_md_abtest/variants
 agentarena leaderboard --type abtest
 ```
 
-## Manual IDE Agents
+Variant directories must contain an `AGENTS.md` file:
 
-`cursor`, `cline`, and `windsurf` use manual mode. AgentArena prints the isolated
-worktree path and task instruction, then waits for you to open that directory in
-the chosen tool and press Enter when finished.
-
-```powershell
-agentarena run --agent cursor --task examples/python_feature_todo_filter/task.yaml --keep-worktree
-agentarena run --agent cline --task examples/python_feature_todo_filter/task.yaml --keep-worktree
-agentarena run --agent windsurf --task examples/python_feature_todo_filter/task.yaml --keep-worktree
+```text
+variants/
+  no_agents/AGENTS.md
+  simple/AGENTS.md
+  strict/AGENTS.md
 ```
 
-## Leaderboards And Dashboard
+## Leaderboard
 
 ```powershell
+agentarena leaderboard
 agentarena leaderboard --type debug
 agentarena leaderboard --type generation
 agentarena leaderboard --type planning
+agentarena leaderboard --type abtest
 agentarena leaderboard --overall
+```
+
+## Dashboard
+
+```powershell
 agentarena dashboard
 ```
 
-The dashboard includes score, diff, files changed, duration, violations, task type
-score comparison, AGENTS.md variant comparison, pass rate by agent, and failure
-reason distribution.
+The dashboard includes total score, task type comparison, pass rate by agent,
+failure reason distribution, AGENTS.md variant comparison, and diff-vs-score
+scatter plots.
+
+## GUI Usage
+
+```powershell
+agentarena gui
+```
+
+The GUI lets you choose a project directory, task file, agent set, normal
+benchmark or AGENTS.md A/B mode, and variants directory. Runs execute in a
+background thread so the interface stays responsive.
+
+## Historical Runs
+
+```powershell
+agentarena runs
+agentarena runs --latest
+agentarena show <run_id>
+```
+
+## Build EXE
+
+```powershell
+python scripts/build_exe.py
+python scripts/build_gui_exe.py
+```
+
+Expected outputs:
+
+- `dist/AgentArena.exe`
+- `dist/AgentArenaGUI.exe`
+
+## Release Check
+
+```powershell
+python scripts/release.py
+```
+
+The release script runs pytest, checks README/examples/pyproject, attempts to
+build a wheel, and prints a checklist.
+
+## Roadmap
+
+- More agent adapters
+- Stronger task schemas and scoring presets
+- Optional sandbox backends
+- Richer report comparison views
+- Import/export benchmark bundles

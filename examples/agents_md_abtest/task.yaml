@@ -1,7 +1,7 @@
 id: agents-md-abtest-todo-filter
 title: Compare AGENTS.md instructions for todo filter
 type: generation
-repo: ./repo
+repo: ../..
 description: >
   Compare how different AGENTS.md guidance affects a small todo status filter task.
 instructions: >
@@ -12,11 +12,11 @@ success_criteria:
 test:
   commands:
     - name: pytest
-      command: pytest
+      command: pytest examples/agents_md_abtest/repo/tests
       timeout_seconds: 120
 expected_files_may_change:
-  - "src/**"
-  - "tests/**"
+  - "examples/agents_md_abtest/repo/src/**"
+  - "examples/agents_md_abtest/repo/tests/**"
 feature_checks:
   required_patterns:
     - "filter"

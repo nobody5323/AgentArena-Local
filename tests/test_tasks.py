@@ -10,7 +10,7 @@ def test_load_task_parses_debug_example() -> None:
     task = load_task(Path("examples/python_debug_login/task.yaml"))
 
     assert task.type is TaskType.debug
-    assert task.test_commands[0].command == "pytest"
+    assert task.test_commands[0].command == "pytest examples/python_debug_login/repo/tests"
 
 
 def test_task_requires_success_criteria() -> None:

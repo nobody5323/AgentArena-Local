@@ -16,7 +16,7 @@ from agentarena_local.abtest.experiment import save_abtest_outputs
 from agentarena_local.abtest.variant import load_variants
 from agentarena_local.agents.base import AgentExecutionResult
 from agentarena_local.agents.registry import get_agent
-from agentarena_local.config import init_workspace
+from agentarena_local.config import AppConfig, init_workspace, load_config
 from agentarena_local.gitops.diff import DiffStats, collect_diff
 from agentarena_local.gitops.worktree import create_worktree, ensure_git_repo, remove_worktree
 from agentarena_local.metrics.constraints import check_constraints
@@ -31,6 +31,7 @@ from agentarena_local.metrics.test_runner import CommandGroupResult, run_command
 from agentarena_local.planning.plan_collector import save_plan
 from agentarena_local.planning.plan_report import save_planning_result
 from agentarena_local.planning.plan_scorer import score_plan
+from agentarena_local.results.browser import find_run, latest_run, list_runs
 from agentarena_local.tasks import TaskConfig, load_task
 
 app = typer.Typer(
@@ -72,8 +73,17 @@ def _resolve_repo(task: TaskConfig, task_file: Path) -> Path:
     ]
     for candidate in candidates:
         if candidate.exists():
-            return ensure_git_repo(candidate.resolve())
+            try:
+                return ensure_git_repo(candidate.resolve())
+            except RuntimeError:
+                continue
     raise RuntimeError(f"Task repo does not exist or is not accessible: {task.repo}")
+
+
+def _apply_agent_command_config(agent: object, config: AppConfig, agent_name: str) -> None:
+    command = config.agent_commands.get(agent_name)
+    if command and hasattr(agent, "executable"):
+        setattr(agent, "executable", command)
 
 
 def _instruction_for(task: TaskConfig) -> str:
@@ -125,18 +135,23 @@ def _run_one_agent(
     task_file: Path,
     repo_root: Path,
     run_root: Path,
+    runs_dir: Path,
+    worktrees_dir: Path,
     keep_worktree: bool,
     timeout: int | None,
+    config: AppConfig | None = None,
     agents_md_source: Path | None = None,
     variant: str | None = None,
 ) -> dict[str, object]:
     agent = get_agent(agent_name)
+    if config is not None:
+        _apply_agent_command_config(agent, config, agent_name)
     agent_dir = run_root / agent_name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    run_relative = str(run_root.relative_to(Path.cwd() / ".agentarena" / "runs")).replace("\\", "/")
+    run_relative = str(run_root.relative_to(runs_dir)).replace("\\", "/")
     worktree_key = run_relative.replace("/", "_")
-    worktree_path = Path.cwd() / ".agentarena" / "worktrees" / worktree_key / agent_name
+    worktree_path = worktrees_dir / worktree_key / agent_name
     worktree = None
     setup_result = CommandGroupResult()
     test_result = CommandGroupResult()
@@ -515,7 +530,10 @@ def run(
     ] = None,
 ) -> None:
     """Run one or more AI coding agents against a task."""
+    config = load_config(Path.cwd())
     agent_names = _parse_agent_names(agent, agents)
+    effective_timeout = timeout if timeout is not None else config.default_timeout_seconds
+    effective_keep_worktree = keep_worktree or config.keep_worktree
 
     try:
         task = load_task(task_file)
@@ -524,7 +542,7 @@ def run(
         console.print(f"[red]Cannot run task:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
-    run_root = Path.cwd() / ".agentarena" / "runs" / f"{_run_id()}_{task.id}"
+    run_root = config.runs_dir / f"{_run_id()}_{task.id}"
     run_root.mkdir(parents=True, exist_ok=True)
 
     results = []
@@ -538,8 +556,11 @@ def run(
                     task_file=task_file.resolve(),
                     repo_root=repo_root,
                     run_root=run_root,
-                    keep_worktree=keep_worktree,
-                    timeout=timeout,
+                    runs_dir=config.runs_dir,
+                    worktrees_dir=config.root / ".agentarena" / "worktrees",
+                    keep_worktree=effective_keep_worktree,
+                    timeout=effective_timeout,
+                    config=config,
                 )
             )
         except Exception as exc:
@@ -566,14 +587,15 @@ def leaderboard(
     ] = False,
 ) -> None:
     """Print and save the AgentArena leaderboard."""
-    runs_dir = Path.cwd() / ".agentarena" / "runs"
+    config = load_config(Path.cwd())
+    runs_dir = config.runs_dir
     results = _load_results(runs_dir)
     if task_type == "abtest":
         results = _load_abtest_results(runs_dir)
     else:
         results = _filter_results(results, task_type)
 
-    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    reports_dir = config.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     if overall:
@@ -616,7 +638,8 @@ def leaderboard(
     )
     md_lines = ["# AgentArena Leaderboard", "", "|" + "|".join(columns) + "|", "|" + "|".join(["---"] * len(columns)) + "|"]
     for index, result in enumerate(results, start=1):
-        md_lines.append("|" + "|".join(_result_row(result, index)) + "|")
+        row = _abtest_row(result, index) if task_type == "abtest" else _result_row(result, index)
+        md_lines.append("|" + "|".join(row) + "|")
     _write_text(reports_dir / "leaderboard.md", "\n".join(md_lines) + "\n")
     console.print(f"[green]Saved[/green] {reports_dir / 'leaderboard.md'}")
 
@@ -649,7 +672,10 @@ def abtest(
     ] = None,
 ) -> None:
     """Run an AGENTS.md variant experiment."""
+    config = load_config(Path.cwd())
     agent_names = _parse_agent_names(agent, agents)
+    effective_timeout = timeout if timeout is not None else config.default_timeout_seconds
+    effective_keep_worktree = keep_worktree or config.keep_worktree
     variant_specs = load_variants(variants)
     if not variant_specs:
         console.print(f"[red]No variants with AGENTS.md found in[/red] {variants}")
@@ -662,7 +688,7 @@ def abtest(
         console.print(f"[red]Cannot run A/B test:[/red] {exc}")
         raise typer.Exit(code=1) from exc
 
-    abtest_root = Path.cwd() / ".agentarena" / "runs" / f"abtest_{_run_id()}_{task.id}"
+    abtest_root = config.runs_dir / f"abtest_{_run_id()}_{task.id}"
     results: list[dict[str, object]] = []
     for variant_spec in variant_specs:
         for agent_name in agent_names:
@@ -673,8 +699,11 @@ def abtest(
                 task_file=task_file.resolve(),
                 repo_root=repo_root,
                 run_root=abtest_root / variant_spec.name,
-                keep_worktree=keep_worktree,
-                timeout=timeout,
+                runs_dir=config.runs_dir,
+                worktrees_dir=config.root / ".agentarena" / "worktrees",
+                keep_worktree=effective_keep_worktree,
+                timeout=effective_timeout,
+                config=config,
                 agents_md_source=variant_spec.agents_md,
                 variant=variant_spec.name,
             )
@@ -685,10 +714,52 @@ def abtest(
     results.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
     rows = [_abtest_row(result, index) for index, result in enumerate(results, start=1)]
     save_abtest_outputs(abtest_root, rows, results)
-    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    reports_dir = config.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
     save_abtest_outputs(reports_dir, rows, results)
     console.print(f"[green]Saved A/B test[/green] {abtest_root}")
+
+
+@app.command("runs")
+def runs_command(
+    latest: Annotated[
+        bool,
+        typer.Option("--latest", help="Show only the latest run and latest report path."),
+    ] = False,
+) -> None:
+    """List historical AgentArena runs."""
+    config = load_config(Path.cwd())
+    summaries = [latest_run(config.runs_dir)] if latest else list_runs(config.runs_dir)
+    summaries = [summary for summary in summaries if summary is not None]
+
+    table = Table(title="AgentArena Runs")
+    for column in ["Run ID", "Task", "Type", "Agents", "Best Score", "Results", "Path"]:
+        table.add_column(column)
+    for summary in summaries:
+        table.add_row(
+            summary.run_id,
+            summary.task,
+            summary.task_type,
+            ", ".join(summary.agents),
+            str(summary.best_score),
+            str(summary.result_count),
+            summary.path,
+        )
+    console.print(table)
+    if latest:
+        report_path = config.reports_dir / "latest-report.html"
+        console.print(f"Latest report: {report_path}")
+
+
+@app.command()
+def show(run_id: Annotated[str, typer.Argument(help="Run id or unique prefix.")]) -> None:
+    """Show a saved run summary."""
+    config = load_config(Path.cwd())
+    summary = find_run(config.runs_dir, run_id)
+    if summary is None:
+        console.print(f"[red]Run not found:[/red] {run_id}")
+        raise typer.Exit(code=1)
+    console.print_json(data=summary.to_dict())
 
 
 @app.command()
@@ -703,9 +774,10 @@ def report(
         console.print("[red]Only --format html is supported in v0.2.[/red]")
         raise typer.Exit(code=1)
 
-    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    config = load_config(Path.cwd())
+    reports_dir = config.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
-    runs_dir = Path.cwd() / ".agentarena" / "runs"
+    runs_dir = config.runs_dir
     results = _load_results(runs_dir)
     abtest_results = _load_abtest_results(runs_dir)
     all_results = sorted([*results, *abtest_results], key=lambda item: int(item.get("score", 0)), reverse=True)
@@ -726,9 +798,10 @@ def report(
 @app.command()
 def dashboard() -> None:
     """Generate a Plotly dashboard for saved runs."""
-    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    config = load_config(Path.cwd())
+    reports_dir = config.reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
-    runs_dir = Path.cwd() / ".agentarena" / "runs"
+    runs_dir = config.runs_dir
     results = [*_load_results(runs_dir), *_load_abtest_results(runs_dir)]
     labels = [f"{result['agent']} / {result['task']['id']}" for result in results]  # type: ignore[index]
     scores = [result.get("score", 0) for result in results]
@@ -779,6 +852,18 @@ def dashboard() -> None:
     )
     _write_text(output, html)
     console.print(f"[green]Saved[/green] {output}")
+
+
+@app.command()
+def gui() -> None:
+    """Launch the PySide6 desktop GUI."""
+    try:
+        from agentarena_local.gui import launch_gui
+
+        raise typer.Exit(code=launch_gui())
+    except RuntimeError as exc:
+        console.print(f"[red]GUI error:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 REPORT_TEMPLATE = """
@@ -903,8 +988,9 @@ DASHBOARD_TEMPLATE = """
   <div id="violations" class="chart"></div>
   <div id="types" class="chart"></div>
   <div id="variants" class="chart"></div>
-  <div id="passrate" class="chart"></div>
-  <div id="failures" class="chart"></div>
+    <div id="passrate" class="chart"></div>
+    <div id="failures" class="chart"></div>
+  <div id="diffscore" class="chart"></div>
   <script>
     const labels = {{ labels }};
     const charts = [
@@ -926,6 +1012,19 @@ DASHBOARD_TEMPLATE = """
         xaxis: { tickangle: -30 }
       });
     }
+    Plotly.newPlot("diffscore", [{
+      type: "scatter",
+      mode: "markers",
+      x: {{ diff_lines }},
+      y: {{ scores }},
+      text: labels,
+      marker: { size: 11 }
+    }], {
+      title: "Diff vs score",
+      xaxis: { title: "Diff lines" },
+      yaxis: { title: "Score" },
+      template: "plotly_white"
+    });
   </script>
 </body>
 </html>

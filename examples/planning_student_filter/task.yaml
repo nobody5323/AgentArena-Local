@@ -1,7 +1,7 @@
 id: planning-student-filter
 title: Plan a student class filter
 type: planning
-repo: ./repo
+repo: ../..
 description: >
   Plan how to add a classId filter to the student listing endpoint.
 instructions: >

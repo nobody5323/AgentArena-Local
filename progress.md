@@ -48,3 +48,15 @@
 - Added v0.3 pytest coverage for planning scoring, generation failures, A/B variants, typed leaderboards, and overall aggregation.
 - Verification passed: `python -m pytest` reported 20 passed.
 - CLI smoke checks passed for help, new task validation, typed/overall leaderboards, report, and dashboard.
+- Started v0.4 final open-source productization.
+- Added `.agentarena/config.yaml` support with agent command defaults, timeout, keep-worktree, runs dir, and reports dir.
+- Wired CLI run, abtest, leaderboard, report, dashboard, runs, and show commands to the config system.
+- Added historical run browsing helpers and CLI commands `agentarena runs`, `agentarena runs --latest`, and `agentarena show <run_id>`.
+- Added PySide6 GUI entrypoint and `agentarena gui` command with project/task/agent/mode selection, background command execution, logs, leaderboard refresh, and report/dashboard open buttons.
+- Added PyInstaller build scripts for CLI and GUI executables.
+- Added release check script with pytest, README/example/pyproject checks, wheel build, and offline wheel fallback.
+- Completed example READMEs and added runnable example repo folders.
+- Rewrote README as final open-source product documentation.
+- Added v0.4 tests for config, runs browser, report generation, dashboard generation, and GUI smoke import.
+- Verification passed: `python -m pytest` reported 26 passed.
+- Verification passed: `python scripts/release.py` completed with all checklist items checked.
