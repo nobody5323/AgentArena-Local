@@ -1,0 +1,25 @@
+id: python-debug-login
+title: Fix login validation bug
+type: debug
+repo: ./sample-repos/python-login-app
+description: >
+  The sample Python login app rejects valid users when the stored password
+  contains leading or trailing whitespace.
+instructions: >
+  Diagnose the login validation behavior and make the smallest code change that
+  allows valid credentials to pass while preserving failed login behavior.
+success_criteria:
+  - Valid credentials authenticate successfully.
+  - Invalid credentials are rejected.
+  - Existing public function names remain unchanged.
+test_commands:
+  - name: pytest
+    command: pytest
+    timeout_seconds: 120
+constraints:
+  - kind: max_files_changed
+    value: "3"
+    description: Keep the debug fix focused.
+metadata:
+  difficulty: easy
+  language: python

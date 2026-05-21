@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentarena-local"
+version = "0.1.0"
+description = "Local multi-dimensional benchmark platform for AI coding agents."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "AgentArena Local Contributors" }
+]
+dependencies = [
+  "typer>=0.12.0",
+  "rich>=13.7.0",
+  "pydantic>=2.6.0",
+  "PyYAML>=6.0.1",
+  "jinja2>=3.1.0",
+  "plotly>=5.18.0",
+  "PySide6>=6.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
+[project.scripts]
+agentarena = "agentarena_local.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "--basetemp=.pytest_tmp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentarena_local"]
