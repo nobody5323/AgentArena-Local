@@ -13,7 +13,7 @@ class TaskType(StrEnum):
     generation = "generation"
 
 
-class TestCommand(BaseModel):
+class CommandSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1)
@@ -21,11 +21,20 @@ class TestCommand(BaseModel):
     timeout_seconds: int = Field(default=300, ge=1)
 
 
+class CommandGroup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    commands: list[CommandSpec] = Field(default_factory=list)
+
+
+TestCommand = CommandSpec
+
+
 class Constraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str = Field(..., min_length=1)
-    value: str = Field(..., min_length=1)
+    value: str | int | list[str] = Field(..., min_length=1)
     description: str | None = None
 
 
@@ -43,7 +52,9 @@ class TaskConfig(BaseModel):
     description: str = Field(..., min_length=1)
     instructions: str = Field(..., min_length=1)
     success_criteria: list[str] = Field(default_factory=list)
-    test_commands: list[TestCommand] = Field(default_factory=list)
+    setup: CommandGroup = Field(default_factory=CommandGroup)
+    test: CommandGroup = Field(default_factory=CommandGroup)
+    test_commands: list[CommandSpec] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
     metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
@@ -53,6 +64,14 @@ class TaskConfig(BaseModel):
         if not value:
             raise ValueError("success_criteria must contain at least one item")
         return value
+
+    def setup_commands(self) -> list[CommandSpec]:
+        return self.setup.commands
+
+    def test_commands_for_run(self) -> list[CommandSpec]:
+        if self.test.commands:
+            return self.test.commands
+        return self.test_commands
 
 
 def load_task(path: Path) -> TaskConfig:

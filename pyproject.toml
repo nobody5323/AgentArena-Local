@@ -36,4 +36,4 @@ pythonpath = ["src"]
 addopts = "--basetemp=.pytest_tmp"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentarena_local"]
+packages = ["src/agentarena_local", "src/agentarena"]

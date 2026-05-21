@@ -16,10 +16,18 @@ test_commands:
   - name: pytest
     command: pytest
     timeout_seconds: 120
+test:
+  commands:
+    - name: pytest
+      command: pytest
+      timeout_seconds: 120
 constraints:
   - kind: max_files_changed
     value: "3"
     description: Keep the debug fix focused.
+  - kind: max_diff_lines
+    value: "200"
+    description: Prefer a focused patch.
 metadata:
   difficulty: easy
   language: python
