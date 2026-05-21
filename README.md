@@ -1,5 +1,7 @@
 # AgentArena Local
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 AgentArena Local is a local benchmark platform for comparing AI coding agents in
 your own Git repositories. It runs each agent in an isolated Git worktree,
 collects diffs, runs tests, checks constraints, scores results, and generates
