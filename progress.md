@@ -37,3 +37,14 @@
 - Added a lightweight `agentarena.*` compatibility package that re-exports the `agentarena_local` implementation, matching the v0.2 requested module paths without renaming the v0.1 package.
 - Verification passed after compatibility layer: `python -m pytest` reported 12 passed.
 - Verified `agentarena.agents.registry` compatibility import and `agentarena dashboard` generation.
+- Started v0.3 implementation.
+- Added planning evaluation helpers for saving `plan.md`, keyword scoring, and `planning_result.json`.
+- Added feature slice evaluation for required patterns, forbidden patterns, and unexpected file warnings.
+- Added AGENTS.md A/B test helpers and `agentarena abtest`.
+- Added Cursor, Cline, and Windsurf manual-mode adapters.
+- Enhanced leaderboard with `--type` filtering and `--overall` aggregation.
+- Enhanced report and dashboard with A/B, recommendation, task type, pass rate, and failure distribution views.
+- Added planning, generation, and A/B example tasks.
+- Added v0.3 pytest coverage for planning scoring, generation failures, A/B variants, typed leaderboards, and overall aggregation.
+- Verification passed: `python -m pytest` reported 20 passed.
+- CLI smoke checks passed for help, new task validation, typed/overall leaderboards, report, and dashboard.

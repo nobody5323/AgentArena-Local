@@ -8,6 +8,7 @@ from agentarena_local.agents.base import AgentExecutionResult, BaseAgentAdapter
 
 class ManualAgentAdapter(BaseAgentAdapter):
     name = "manual"
+    tool_hint = "your preferred editor or agent"
 
     def is_available(self) -> bool:
         return True
@@ -19,15 +20,20 @@ class ManualAgentAdapter(BaseAgentAdapter):
         timeout: int | None = None,
     ) -> AgentExecutionResult:
         started = time.monotonic()
-        print(f"Manual AgentArena worktree: {cwd}")
-        print("Instruction:")
+        print("=" * 72)
+        print(f"AgentArena manual mode: {self.name}")
+        print(f"Worktree path: {cwd}")
+        print(f"Open this directory with {self.tool_hint}, complete the task, then return here.")
+        print("-" * 72)
+        print("Task instruction:")
         print(instruction)
+        print("=" * 72)
         input("Press Enter when the manual agent run is complete...")
         return AgentExecutionResult(
             agent_name=self.name,
             command=None,
             exit_code=0,
-            stdout="Manual run completed by user.\n",
+            stdout=f"Manual run completed by user for {self.name}.\n",
             stderr="",
             duration_seconds=time.monotonic() - started,
         )

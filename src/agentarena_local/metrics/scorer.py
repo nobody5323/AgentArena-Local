@@ -47,3 +47,25 @@ def calculate_score(
     if tests_passed is False:
         score = min(score, 50)
     return ScoreResult(score=max(0, min(100, score)), breakdown=breakdown)
+
+
+def calculate_generation_score(
+    *,
+    tests_passed: bool | None,
+    feature_completeness: int,
+    constraints_passed: bool,
+    diff_stats: DiffStats,
+) -> ScoreResult:
+    test_points = 50 if tests_passed is True else 0
+    if tests_passed is None:
+        test_points = 25
+    breakdown = {
+        "tests_passed": test_points,
+        "feature_completeness": max(0, min(25, feature_completeness)),
+        "constraints_passed": 15 if constraints_passed else 0,
+        "minimal_diff": 10 if diff_stats.total_diff_lines <= 200 else 5,
+    }
+    score = sum(breakdown.values())
+    if tests_passed is False:
+        score = min(score, 50)
+    return ScoreResult(score=max(0, min(100, score)), breakdown=breakdown)

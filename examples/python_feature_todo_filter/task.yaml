@@ -1,0 +1,36 @@
+id: python-feature-todo-filter
+title: Add todo status filtering
+type: generation
+repo: ./repo
+description: >
+  The todo app can list all items but cannot filter by completion status.
+instructions: >
+  Add a small feature slice that supports filtering todos by status while
+  keeping the public API compact.
+success_criteria:
+  - Filtering by status returns only matching todos.
+  - Existing list behavior still works.
+  - Tests cover completed and active statuses.
+test:
+  commands:
+    - name: pytest
+      command: pytest
+      timeout_seconds: 120
+expected_files_may_change:
+  - "src/**"
+  - "tests/**"
+feature_checks:
+  required_patterns:
+    - "filter"
+    - "status"
+  forbidden_patterns:
+    - "TODO"
+    - "pass #"
+constraints:
+  - kind: max_files_changed
+    value: "4"
+  - kind: max_diff_lines
+    value: "200"
+metadata:
+  language: python
+  difficulty: easy

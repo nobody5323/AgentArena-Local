@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Annotated
@@ -11,15 +12,25 @@ from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
+from agentarena_local.abtest.experiment import save_abtest_outputs
+from agentarena_local.abtest.variant import load_variants
 from agentarena_local.agents.base import AgentExecutionResult
 from agentarena_local.agents.registry import get_agent
 from agentarena_local.config import init_workspace
 from agentarena_local.gitops.diff import DiffStats, collect_diff
 from agentarena_local.gitops.worktree import create_worktree, ensure_git_repo, remove_worktree
 from agentarena_local.metrics.constraints import check_constraints
-from agentarena_local.metrics.failure_analysis import analyze_failures
-from agentarena_local.metrics.scorer import calculate_score
+from agentarena_local.metrics.failure_analysis import (
+    analyze_failures,
+    extend_generation_failures,
+    extend_planning_failures,
+)
+from agentarena_local.metrics.feature import evaluate_feature_slice
+from agentarena_local.metrics.scorer import calculate_generation_score, calculate_score
 from agentarena_local.metrics.test_runner import CommandGroupResult, run_commands
+from agentarena_local.planning.plan_collector import save_plan
+from agentarena_local.planning.plan_report import save_planning_result
+from agentarena_local.planning.plan_scorer import score_plan
 from agentarena_local.tasks import TaskConfig, load_task
 
 app = typer.Typer(
@@ -42,6 +53,14 @@ def _format_validation_error(exc: ValidationError) -> str:
 
 def _run_id() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
+
+
+def _parse_agent_names(agent: str | None, agents: str | None) -> list[str]:
+    if not agent and not agents:
+        return ["manual"]
+    if agents:
+        return [item.strip() for item in agents.split(",") if item.strip()]
+    return [agent or "manual"]
 
 
 def _resolve_repo(task: TaskConfig, task_file: Path) -> Path:
@@ -108,12 +127,16 @@ def _run_one_agent(
     run_root: Path,
     keep_worktree: bool,
     timeout: int | None,
+    agents_md_source: Path | None = None,
+    variant: str | None = None,
 ) -> dict[str, object]:
     agent = get_agent(agent_name)
     agent_dir = run_root / agent_name
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    worktree_path = Path.cwd() / ".agentarena" / "worktrees" / run_root.name / agent_name
+    run_relative = str(run_root.relative_to(Path.cwd() / ".agentarena" / "runs")).replace("\\", "/")
+    worktree_key = run_relative.replace("/", "_")
+    worktree_path = Path.cwd() / ".agentarena" / "worktrees" / worktree_key / agent_name
     worktree = None
     setup_result = CommandGroupResult()
     test_result = CommandGroupResult()
@@ -123,6 +146,8 @@ def _run_one_agent(
 
     try:
         worktree = create_worktree(repo_root, worktree_path)
+        if agents_md_source is not None:
+            shutil.copyfile(agents_md_source, worktree.path / "AGENTS.md")
         setup_result = run_commands(task.setup_commands(), worktree.path)
 
         if setup_result.passed is False:
@@ -149,13 +174,6 @@ def _run_one_agent(
     duration = time.monotonic() - started
     violations = check_constraints(task.constraints, diff_stats, patch)
     constraints_passed = not violations
-    score = calculate_score(
-        tests_passed=test_result.passed,
-        constraints_passed=constraints_passed,
-        violations=violations,
-        diff_stats=diff_stats,
-        duration_seconds=duration,
-    )
     failures = analyze_failures(
         setup_passed=setup_result.passed,
         agent_exit_code=agent_result.exit_code,
@@ -163,6 +181,66 @@ def _run_one_agent(
         diff_stats=diff_stats,
         violations=violations,
     )
+    score = calculate_score(
+        tests_passed=test_result.passed,
+        constraints_passed=constraints_passed,
+        violations=violations,
+        diff_stats=diff_stats,
+        duration_seconds=duration,
+    )
+    planning_result: dict[str, object] | None = None
+    feature_result: dict[str, object] | None = None
+    warnings: list[str] = []
+
+    if task.type.value == "planning":
+        failures = [failure for failure in failures if failure != "no_code_changed"]
+        plan_path = save_plan(agent_dir, task.planning.output_file, agent_result.stdout)
+        planning_score = score_plan(
+            plan_text=agent_result.stdout,
+            expected_keywords=task.planning.expected_keywords,
+            modified_code=diff_stats.total_diff_lines > 0,
+        )
+        failures = extend_planning_failures(
+            failures,
+            modified_code=planning_score.modified_code,
+            keyword_hit_rate=planning_score.keyword_hit_rate,
+        )
+        save_planning_result(
+            agent_dir,
+            plan_file=plan_path.name,
+            score=planning_score,
+            failures=failures,
+        )
+        planning_result = {
+            "plan_file": plan_path.name,
+            **planning_score.to_dict(),
+        }
+        score = type(score)(score=planning_score.score, breakdown={
+            "no_code_changed": 0 if planning_score.modified_code else 30,
+            "expected_keywords": round(planning_score.keyword_hit_rate * 40),
+            "test_plan": 15 if planning_score.has_test_plan else 0,
+            "risks": 15 if planning_score.has_risks else 0,
+        })
+    elif task.type.value == "generation":
+        feature_eval = evaluate_feature_slice(
+            diff_stats=diff_stats,
+            patch=patch,
+            expected_files_may_change=task.expected_files_may_change,
+            feature_checks=task.feature_checks,
+        )
+        failures = extend_generation_failures(
+            failures,
+            missing_required_patterns=feature_eval.missing_required_patterns,
+            unexpected_files=feature_eval.unexpected_files,
+        )
+        warnings.extend(feature_eval.warnings)
+        feature_result = feature_eval.to_dict()
+        score = calculate_generation_score(
+            tests_passed=test_result.passed,
+            feature_completeness=feature_eval.completeness,
+            constraints_passed=constraints_passed,
+            diff_stats=diff_stats,
+        )
 
     _write_text(agent_dir / "stdout.log", agent_result.stdout)
     _write_text(agent_dir / "stderr.log", agent_result.stderr)
@@ -170,7 +248,7 @@ def _run_one_agent(
     _write_text(agent_dir / "diff.patch", patch)
 
     result: dict[str, object] = {
-        "run_id": run_root.name,
+        "run_id": run_relative,
         "task": {
             "id": task.id,
             "title": task.title,
@@ -179,6 +257,7 @@ def _run_one_agent(
             "repo": str(repo_root),
         },
         "agent": agent_name,
+        "variant": variant,
         "worktree": str(worktree_path),
         "worktree_kept": keep_worktree,
         "agent_exit_code": agent_result.exit_code,
@@ -193,6 +272,9 @@ def _run_one_agent(
         "score_breakdown": score.breakdown,
         "duration_seconds": duration,
         "failures": failures,
+        "warnings": warnings,
+        "planning": planning_result,
+        "feature": feature_result,
         "files": {
             "stdout": "stdout.log",
             "stderr": "stderr.log",
@@ -201,6 +283,9 @@ def _run_one_agent(
             "summary": "summary.md",
         },
     }
+    if planning_result:
+        result["files"]["plan"] = planning_result["plan_file"]  # type: ignore[index]
+        result["files"]["planning_result"] = "planning_result.json"  # type: ignore[index]
 
     _write_text(agent_dir / "summary.md", _summary_markdown(result))
     (agent_dir / "result.json").write_text(
@@ -260,6 +345,27 @@ def _load_results(runs_dir: Path) -> list[dict[str, object]]:
     return sorted(results, key=lambda item: int(item.get("score", 0)), reverse=True)
 
 
+def _load_abtest_results(runs_dir: Path) -> list[dict[str, object]]:
+    results: list[dict[str, object]] = []
+    if not runs_dir.exists():
+        return results
+    for result_file in runs_dir.glob("abtest_*/*/*/result.json"):
+        results.append(json.loads(result_file.read_text(encoding="utf-8")))
+    return sorted(results, key=lambda item: int(item.get("score", 0)), reverse=True)
+
+
+def _filter_results(results: list[dict[str, object]], task_type: str | None) -> list[dict[str, object]]:
+    if task_type is None:
+        return results
+    if task_type == "abtest":
+        return [result for result in results if result.get("variant")]
+    return [
+        result
+        for result in results
+        if isinstance(result.get("task"), dict) and result["task"].get("type") == task_type
+    ]
+
+
 def _result_row(result: dict[str, object], rank: int) -> list[str]:
     task = result.get("task", {})
     diff = result.get("diff", {})
@@ -278,6 +384,53 @@ def _result_row(result: dict[str, object], rank: int) -> list[str]:
         f"{float(result.get('duration_seconds', 0.0)):.1f}s",
         ", ".join(failures) if isinstance(failures, list) else "",
     ]
+
+
+def _abtest_row(result: dict[str, object], rank: int) -> list[str]:
+    base = _result_row(result, rank)
+    return [base[0], str(result.get("variant", "")), base[1], base[2], base[4], base[5], base[6], base[7], base[8], base[9], base[10]]
+
+
+def _overall_rows(results: list[dict[str, object]]) -> list[list[str]]:
+    by_agent: dict[str, list[dict[str, object]]] = {}
+    for result in results:
+        by_agent.setdefault(str(result.get("agent", "")), []).append(result)
+    rows: list[list[str]] = []
+    for agent, agent_results in by_agent.items():
+        avg = sum(float(item.get("score", 0)) for item in agent_results) / len(agent_results)
+        pass_count = sum(1 for item in agent_results if item.get("tests_passed") is True)
+        def avg_for(kind: str) -> str:
+            typed = [item for item in agent_results if isinstance(item.get("task"), dict) and item["task"].get("type") == kind]
+            if not typed:
+                return "-"
+            return f"{sum(float(item.get('score', 0)) for item in typed) / len(typed):.1f}"
+        rows.append([
+            agent,
+            f"{avg:.1f}",
+            avg_for("planning"),
+            avg_for("debug"),
+            avg_for("generation"),
+            str(len(agent_results)),
+            f"{(pass_count / len(agent_results)) * 100:.0f}%",
+        ])
+    rows.sort(key=lambda row: float(row[1]), reverse=True)
+    return [[str(index), *row] for index, row in enumerate(rows, start=1)]
+
+
+def _failure_distribution(results: list[dict[str, object]]) -> dict[str, int]:
+    distribution: dict[str, int] = {}
+    for result in results:
+        failures = result.get("failures", [])
+        if isinstance(failures, list):
+            for failure in failures:
+                distribution[str(failure)] = distribution.get(str(failure), 0) + 1
+    return dict(sorted(distribution.items(), key=lambda item: item[1], reverse=True))
+
+
+def _best_result(results: list[dict[str, object]]) -> dict[str, object] | None:
+    if not results:
+        return None
+    return max(results, key=lambda item: int(item.get("score", 0)))
 
 
 @app.command()
@@ -362,12 +515,7 @@ def run(
     ] = None,
 ) -> None:
     """Run one or more AI coding agents against a task."""
-    if not agent and not agents:
-        agent_names = ["manual"]
-    elif agents:
-        agent_names = [item.strip() for item in agents.split(",") if item.strip()]
-    else:
-        agent_names = [agent or "manual"]
+    agent_names = _parse_agent_names(agent, agents)
 
     try:
         task = load_task(task_file)
@@ -407,25 +555,61 @@ def run(
 
 
 @app.command()
-def leaderboard() -> None:
+def leaderboard(
+    task_type: Annotated[
+        str | None,
+        typer.Option("--type", help="Filter by debug, generation, planning, or abtest."),
+    ] = None,
+    overall: Annotated[
+        bool,
+        typer.Option("--overall", help="Aggregate average scores by agent."),
+    ] = False,
+) -> None:
     """Print and save the AgentArena leaderboard."""
     runs_dir = Path.cwd() / ".agentarena" / "runs"
     results = _load_results(runs_dir)
+    if task_type == "abtest":
+        results = _load_abtest_results(runs_dir)
+    else:
+        results = _filter_results(results, task_type)
 
-    table = Table(title="AgentArena Leaderboard")
+    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    if overall:
+        table = Table(title="AgentArena Overall Leaderboard")
+        columns = ["Rank", "Agent", "Avg Score", "Planning", "Debug", "Generation", "Runs", "Pass Rate"]
+        rows = _overall_rows(results)
+        for column in columns:
+            table.add_column(column)
+        for row in rows:
+            table.add_row(*row)
+        console.print(table)
+        (reports_dir / "leaderboard.json").write_text(
+            json.dumps([dict(zip(columns, row, strict=True)) for row in rows], indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        md_lines = ["# AgentArena Overall Leaderboard", "", "|" + "|".join(columns) + "|", "|" + "|".join(["---"] * len(columns)) + "|"]
+        for row in rows:
+            md_lines.append("|" + "|".join(row) + "|")
+        _write_text(reports_dir / "leaderboard.md", "\n".join(md_lines) + "\n")
+        console.print(f"[green]Saved[/green] {reports_dir / 'leaderboard.md'}")
+        return
+
+    table = Table(title=f"AgentArena Leaderboard{f' ({task_type})' if task_type else ''}")
     columns = ["Rank", "Agent", "Task", "Type", "Score", "Tests", "Files", "Diff", "Violations", "Time", "Failures"]
+    if task_type == "abtest":
+        columns = ["Rank", "Variant", "Agent", "Task", "Score", "Tests", "Files", "Diff", "Violations", "Time", "Failures"]
     for column in columns:
         table.add_column(column)
     for index, result in enumerate(results, start=1):
-        table.add_row(*_result_row(result, index))
+        table.add_row(*(_abtest_row(result, index) if task_type == "abtest" else _result_row(result, index)))
     console.print(table)
 
     leaderboard_json = [
-        dict(zip(columns, _result_row(result, index), strict=True))
+        dict(zip(columns, _abtest_row(result, index) if task_type == "abtest" else _result_row(result, index), strict=True))
         for index, result in enumerate(results, start=1)
     ]
-    reports_dir = Path.cwd() / ".agentarena" / "reports"
-    reports_dir.mkdir(parents=True, exist_ok=True)
     (reports_dir / "leaderboard.json").write_text(
         json.dumps(leaderboard_json, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -435,6 +619,76 @@ def leaderboard() -> None:
         md_lines.append("|" + "|".join(_result_row(result, index)) + "|")
     _write_text(reports_dir / "leaderboard.md", "\n".join(md_lines) + "\n")
     console.print(f"[green]Saved[/green] {reports_dir / 'leaderboard.md'}")
+
+
+@app.command()
+def abtest(
+    task_file: Annotated[
+        Path,
+        typer.Option("--task", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+    variants: Annotated[
+        Path,
+        typer.Option("--variants", exists=True, file_okay=False, dir_okay=True, readable=True),
+    ],
+    agent: Annotated[
+        str | None,
+        typer.Option("--agent", help="Single agent name to run."),
+    ] = None,
+    agents: Annotated[
+        str | None,
+        typer.Option("--agents", help="Comma-separated agent names to run."),
+    ] = None,
+    keep_worktree: Annotated[
+        bool,
+        typer.Option("--keep-worktree", help="Keep agent worktrees after the run."),
+    ] = False,
+    timeout: Annotated[
+        int | None,
+        typer.Option("--timeout", help="Agent execution timeout in seconds."),
+    ] = None,
+) -> None:
+    """Run an AGENTS.md variant experiment."""
+    agent_names = _parse_agent_names(agent, agents)
+    variant_specs = load_variants(variants)
+    if not variant_specs:
+        console.print(f"[red]No variants with AGENTS.md found in[/red] {variants}")
+        raise typer.Exit(code=1)
+
+    try:
+        task = load_task(task_file)
+        repo_root = _resolve_repo(task, task_file.resolve())
+    except (ValueError, ValidationError, yaml.YAMLError, RuntimeError) as exc:
+        console.print(f"[red]Cannot run A/B test:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    abtest_root = Path.cwd() / ".agentarena" / "runs" / f"abtest_{_run_id()}_{task.id}"
+    results: list[dict[str, object]] = []
+    for variant_spec in variant_specs:
+        for agent_name in agent_names:
+            console.print(f"[cyan]A/B[/cyan] variant={variant_spec.name} agent={agent_name}")
+            result = _run_one_agent(
+                agent_name=agent_name,
+                task=task,
+                task_file=task_file.resolve(),
+                repo_root=repo_root,
+                run_root=abtest_root / variant_spec.name,
+                keep_worktree=keep_worktree,
+                timeout=timeout,
+                agents_md_source=variant_spec.agents_md,
+                variant=variant_spec.name,
+            )
+            result_file = abtest_root / variant_spec.name / agent_name / "result.json"
+            result_file.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+            results.append(result)
+
+    results.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
+    rows = [_abtest_row(result, index) for index, result in enumerate(results, start=1)]
+    save_abtest_outputs(abtest_root, rows, results)
+    reports_dir = Path.cwd() / ".agentarena" / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    save_abtest_outputs(reports_dir, rows, results)
+    console.print(f"[green]Saved A/B test[/green] {abtest_root}")
 
 
 @app.command()
@@ -451,10 +705,19 @@ def report(
 
     reports_dir = Path.cwd() / ".agentarena" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
-    results = _load_results(Path.cwd() / ".agentarena" / "runs")
+    runs_dir = Path.cwd() / ".agentarena" / "runs"
+    results = _load_results(runs_dir)
+    abtest_results = _load_abtest_results(runs_dir)
+    all_results = sorted([*results, *abtest_results], key=lambda item: int(item.get("score", 0)), reverse=True)
+    best = _best_result(all_results)
     from jinja2 import Template
 
-    html = Template(REPORT_TEMPLATE).render(results=results)
+    html = Template(REPORT_TEMPLATE).render(
+        results=all_results,
+        abtest_results=abtest_results,
+        failures=_failure_distribution(all_results),
+        best=best,
+    )
     output = reports_dir / "latest-report.html"
     _write_text(output, html)
     console.print(f"[green]Saved[/green] {output}")
@@ -465,13 +728,35 @@ def dashboard() -> None:
     """Generate a Plotly dashboard for saved runs."""
     reports_dir = Path.cwd() / ".agentarena" / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
-    results = _load_results(Path.cwd() / ".agentarena" / "runs")
+    runs_dir = Path.cwd() / ".agentarena" / "runs"
+    results = [*_load_results(runs_dir), *_load_abtest_results(runs_dir)]
     labels = [f"{result['agent']} / {result['task']['id']}" for result in results]  # type: ignore[index]
     scores = [result.get("score", 0) for result in results]
     diff_lines = [result.get("diff", {}).get("total_diff_lines", 0) for result in results]  # type: ignore[union-attr]
     files = [len(result.get("diff", {}).get("changed_files", [])) for result in results]  # type: ignore[union-attr]
     durations = [result.get("duration_seconds", 0) for result in results]
     violations = [len(result.get("constraint_violations", [])) for result in results]
+    type_labels = ["planning", "debug", "generation"]
+    type_scores = [
+        sum(float(result.get("score", 0)) for result in results if isinstance(result.get("task"), dict) and result["task"].get("type") == task_type)
+        / max(1, sum(1 for result in results if isinstance(result.get("task"), dict) and result["task"].get("type") == task_type))
+        for task_type in type_labels
+    ]
+    agents = sorted({str(result.get("agent", "")) for result in results})
+    pass_rates = [
+        (
+            sum(1 for result in results if result.get("agent") == agent and result.get("tests_passed") is True)
+            / max(1, sum(1 for result in results if result.get("agent") == agent))
+        ) * 100
+        for agent in agents
+    ]
+    variant_labels = sorted({str(result.get("variant", "")) for result in results if result.get("variant")})
+    variant_scores = [
+        sum(float(result.get("score", 0)) for result in results if result.get("variant") == variant)
+        / max(1, sum(1 for result in results if result.get("variant") == variant))
+        for variant in variant_labels
+    ]
+    failures = _failure_distribution(results)
 
     output = reports_dir / "dashboard.html"
     from jinja2 import Template
@@ -483,6 +768,14 @@ def dashboard() -> None:
         files=json.dumps(files),
         durations=json.dumps(durations),
         violations=json.dumps(violations),
+        type_labels=json.dumps(type_labels),
+        type_scores=json.dumps(type_scores),
+        agents=json.dumps(agents),
+        pass_rates=json.dumps(pass_rates),
+        variant_labels=json.dumps(variant_labels),
+        variant_scores=json.dumps(variant_scores),
+        failure_labels=json.dumps(list(failures.keys())),
+        failure_counts=json.dumps(list(failures.values())),
     )
     _write_text(output, html)
     console.print(f"[green]Saved[/green] {output}")
@@ -506,6 +799,14 @@ REPORT_TEMPLATE = """
 <body>
   <h1>AgentArena Local Report</h1>
   <section>
+    <h2>Recommendation</h2>
+    {% if best %}
+    <p>Best current result: <strong>{{ best.agent }}</strong>{% if best.variant %} with variant <strong>{{ best.variant }}</strong>{% endif %} on <code>{{ best.task.id }}</code>, score <strong>{{ best.score }}</strong>.</p>
+    {% else %}
+    <p>No results available yet.</p>
+    {% endif %}
+  </section>
+  <section>
     <h2>Leaderboard</h2>
     <table>
       <thead><tr><th>Rank</th><th>Agent</th><th>Task</th><th>Type</th><th>Score</th><th>Tests</th><th>Files</th><th>Diff</th><th>Violations</th><th>Time</th><th>Failures</th></tr></thead>
@@ -514,8 +815,8 @@ REPORT_TEMPLATE = """
         <tr>
           <td>{{ loop.index }}</td>
           <td>{{ result.agent }}</td>
-          <td>{{ result.task.id }}</td>
-          <td>{{ result.task.type }}</td>
+          <td>{{ result.task.id }}{% if result.variant %}<br><small>variant: {{ result.variant }}</small>{% endif %}</td>
+          <td><code>{{ result.task.type }}</code></td>
           <td>{{ result.score }}</td>
           <td>{{ result.tests_passed }}</td>
           <td>{{ result.diff.changed_files|length }}</td>
@@ -528,10 +829,34 @@ REPORT_TEMPLATE = """
       </tbody>
     </table>
   </section>
+  <section>
+    <h2>A/B Test Comparison</h2>
+    <table>
+      <thead><tr><th>Variant</th><th>Agent</th><th>Task</th><th>Score</th><th>Failures</th></tr></thead>
+      <tbody>
+      {% for result in abtest_results %}
+      <tr><td>{{ result.variant }}</td><td>{{ result.agent }}</td><td>{{ result.task.id }}</td><td>{{ result.score }}</td><td>{{ result.failures|join(", ") }}</td></tr>
+      {% else %}
+      <tr><td colspan="5">No A/B test results.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Failure Reasons</h2>
+    <ul>
+      {% for failure, count in failures.items() %}
+      <li>{{ failure }}: {{ count }}</li>
+      {% else %}
+      <li>none</li>
+      {% endfor %}
+    </ul>
+  </section>
   {% for result in results %}
   <section>
-    <h2>{{ result.agent }} - {{ result.task.id }}</h2>
+    <h2>{{ result.agent }} - {{ result.task.id }}{% if best and result.run_id == best.run_id and result.agent == best.agent and result.variant == best.variant %} (winner){% endif %}</h2>
     <p><strong>Task:</strong> {{ result.task.title }} (<code>{{ result.task.type }}</code>)</p>
+    {% if result.variant %}<p><strong>AGENTS.md variant:</strong> {{ result.variant }}</p>{% endif %}
     <p><strong>Score:</strong> {{ result.score }}</p>
     <p><strong>Failures:</strong> {{ result.failures|join(", ") if result.failures else "none" }}</p>
     <h3>Constraint Violations</h3>
@@ -548,6 +873,7 @@ REPORT_TEMPLATE = """
       <li><a href="../runs/{{ result.run_id }}/{{ result.agent }}/test.log">test.log</a></li>
       <li><a href="../runs/{{ result.run_id }}/{{ result.agent }}/stdout.log">stdout.log</a></li>
       <li><a href="../runs/{{ result.run_id }}/{{ result.agent }}/stderr.log">stderr.log</a></li>
+      {% if result.files.plan %}<li><a href="../runs/{{ result.run_id }}/{{ result.agent }}/{{ result.files.plan }}">plan.md</a></li>{% endif %}
     </ul>
   </section>
   {% endfor %}
@@ -575,6 +901,10 @@ DASHBOARD_TEMPLATE = """
   <div id="files" class="chart"></div>
   <div id="duration" class="chart"></div>
   <div id="violations" class="chart"></div>
+  <div id="types" class="chart"></div>
+  <div id="variants" class="chart"></div>
+  <div id="passrate" class="chart"></div>
+  <div id="failures" class="chart"></div>
   <script>
     const labels = {{ labels }};
     const charts = [
@@ -583,9 +913,13 @@ DASHBOARD_TEMPLATE = """
       ["files", "Files changed", {{ files }}],
       ["duration", "Duration seconds", {{ durations }}],
       ["violations", "Violations", {{ violations }}],
+      ["types", "Task type score comparison", {{ type_scores }}, {{ type_labels }}],
+      ["variants", "AGENTS.md variant score comparison", {{ variant_scores }}, {{ variant_labels }}],
+      ["passrate", "Pass rate by agent", {{ pass_rates }}, {{ agents }}],
+      ["failures", "Failure reason distribution", {{ failure_counts }}, {{ failure_labels }}],
     ];
-    for (const [id, title, values] of charts) {
-      Plotly.newPlot(id, [{ type: "bar", x: labels, y: values }], {
+    for (const [id, title, values, customLabels] of charts) {
+      Plotly.newPlot(id, [{ type: "bar", x: customLabels || labels, y: values }], {
         title,
         template: "plotly_white",
         margin: { l: 48, r: 24, t: 48, b: 96 },

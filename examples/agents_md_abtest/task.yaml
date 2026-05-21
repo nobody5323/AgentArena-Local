@@ -1,0 +1,29 @@
+id: agents-md-abtest-todo-filter
+title: Compare AGENTS.md instructions for todo filter
+type: generation
+repo: ./repo
+description: >
+  Compare how different AGENTS.md guidance affects a small todo status filter task.
+instructions: >
+  Add status filtering to list_todos and update tests.
+success_criteria:
+  - Status filtering works for completed and active todos.
+  - Existing behavior remains intact.
+test:
+  commands:
+    - name: pytest
+      command: pytest
+      timeout_seconds: 120
+expected_files_may_change:
+  - "src/**"
+  - "tests/**"
+feature_checks:
+  required_patterns:
+    - "filter"
+    - "status"
+constraints:
+  - kind: max_files_changed
+    value: "4"
+metadata:
+  language: python
+  difficulty: easy

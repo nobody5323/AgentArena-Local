@@ -33,3 +33,31 @@ def analyze_failures(
         failures.append("forbidden_pattern_found")
 
     return failures
+
+
+def extend_planning_failures(
+    failures: list[str],
+    *,
+    modified_code: bool,
+    keyword_hit_rate: float,
+) -> list[str]:
+    extended = list(failures)
+    if modified_code and "planning_modified_code" not in extended:
+        extended.append("planning_modified_code")
+    if keyword_hit_rate < 1.0 and "planning_missing_keywords" not in extended:
+        extended.append("planning_missing_keywords")
+    return extended
+
+
+def extend_generation_failures(
+    failures: list[str],
+    *,
+    missing_required_patterns: list[str],
+    unexpected_files: list[str],
+) -> list[str]:
+    extended = list(failures)
+    if missing_required_patterns and "feature_required_pattern_missing" not in extended:
+        extended.append("feature_required_pattern_missing")
+    if unexpected_files and "unexpected_file_changed" not in extended:
+        extended.append("unexpected_file_changed")
+    return extended

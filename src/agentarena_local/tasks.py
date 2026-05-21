@@ -38,6 +38,20 @@ class Constraint(BaseModel):
     description: str | None = None
 
 
+class PlanningConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    output_file: str = Field(default="plan.md", min_length=1)
+    expected_keywords: list[str] = Field(default_factory=list)
+
+
+class FeatureChecks(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required_patterns: list[str] = Field(default_factory=list)
+    forbidden_patterns: list[str] = Field(default_factory=list)
+
+
 class TaskConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -56,6 +70,9 @@ class TaskConfig(BaseModel):
     test: CommandGroup = Field(default_factory=CommandGroup)
     test_commands: list[CommandSpec] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
+    planning: PlanningConfig = Field(default_factory=PlanningConfig)
+    expected_files_may_change: list[str] = Field(default_factory=list)
+    feature_checks: FeatureChecks = Field(default_factory=FeatureChecks)
     metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
     @field_validator("success_criteria")

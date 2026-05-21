@@ -1,0 +1,23 @@
+id: planning-student-filter
+title: Plan a student class filter
+type: planning
+repo: ./repo
+description: >
+  Plan how to add a classId filter to the student listing endpoint.
+instructions: >
+  Produce an implementation plan only. Do not modify code. The plan should cover
+  controller, service, query behavior, tests, and risks.
+success_criteria:
+  - Plan identifies controller and service changes.
+  - Plan includes test strategy.
+  - Plan calls out risks or edge cases.
+planning:
+  output_file: plan.md
+  expected_keywords:
+    - StudentController
+    - StudentService
+    - classId
+    - test
+metadata:
+  language: python
+  difficulty: easy

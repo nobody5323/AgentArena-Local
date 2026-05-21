@@ -15,6 +15,8 @@ Create a runnable Python 3.11+ AgentArena Local project. v0.1 scaffold is comple
 | 6. v0.2 schema/modules | complete | Added agent adapters, gitops, metrics, and schema extensions. |
 | 7. v0.2 CLI integration | complete | Added run, leaderboard, report, dashboard commands and verified CLI smoke paths. |
 | 8. v0.2 tests/docs | complete | Added unit tests and README updates; pytest passes. |
+| 9. v0.3 planning/generation/abtest | complete | Added planning scoring, feature slice checks, AGENTS.md A/B tests, manual IDE agents, and enhanced reports. |
+| 10. v0.3 verification | complete | Added examples and tests; pytest and CLI smoke checks pass. |
 
 ## Decisions
 
@@ -22,6 +24,7 @@ Create a runnable Python 3.11+ AgentArena Local project. v0.1 scaffold is comple
 - Use `src/agentarena_local` as the import package and expose the CLI command as `agentarena`.
 - Store app config under `.agentarena/` for `agentarena init`.
 - Keep v0.2 additive under `src/agentarena_local` rather than renaming the package to avoid a v0.1-breaking refactor.
+- Keep v0.3 additive as helper modules plus CLI wiring. Example `repo/` folders are source examples; actual `run` targets still need to be Git repositories for worktree isolation.
 
 ## Errors Encountered
 
