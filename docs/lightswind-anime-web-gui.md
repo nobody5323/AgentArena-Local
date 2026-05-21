@@ -80,15 +80,37 @@ Suggested Lightswind components:
 
 ## Workflow For Codex
 
-When asked to build the Web GUI:
+Current Web GUI location:
 
-1. Create a frontend app under `web/`.
-2. Install React/Vite/Tailwind if missing.
-3. Run `npx lightswind init` inside `web/`.
-4. Add only the components needed for the current screen.
-5. Implement the UI against the existing AgentArena CLI/result files first.
-6. Keep Python evaluation logic in `src/agentarena_local`; do not duplicate runner logic in React.
-7. Verify with tests and a browser screenshot.
+```text
+web/
+```
+
+The Web GUI imports a local vendored CSS copy from:
+
+```text
+web/src/vendor/lightswind.css
+```
+
+That file comes from `node_modules/lightswind/lightswindv1.0.css`. We vendor the
+CSS because the published package advertises `lightswind/styles.css`, but this
+version does not include that file in `dist/`.
+
+Run it with:
+
+```powershell
+cd web
+npm install
+npm run dev
+```
+
+When asked to build or extend the Web GUI:
+
+1. Work under `web/`.
+2. Add only the components needed for the current screen.
+3. Implement the UI against the existing AgentArena CLI/result files first.
+4. Keep Python evaluation logic in `src/agentarena_local`; do not duplicate runner logic in React.
+5. Verify with `npm run build`, pytest, and a browser screenshot when possible.
 
 ## Important Notes
 

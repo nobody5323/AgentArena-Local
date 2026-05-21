@@ -19,6 +19,7 @@ Create a runnable Python 3.11+ AgentArena Local project. v0.1 scaffold is comple
 | 10. v0.3 verification | complete | Added examples and tests; pytest and CLI smoke checks pass. |
 | 11. v0.4 productization | complete | Added GUI, config system, run history browser, EXE/release scripts, final README, and example READMEs. |
 | 12. v0.4 verification | complete | pytest, release script, CLI help, validate, report, dashboard, and runs commands pass. |
+| 13. Web GUI replacement | complete | Removed PySide6 desktop GUI and added a bright Lightswind/React/Vite anime Web GUI prototype. |
 
 ## Decisions
 
@@ -29,6 +30,7 @@ Create a runnable Python 3.11+ AgentArena Local project. v0.1 scaffold is comple
 - Keep v0.3 additive as helper modules plus CLI wiring. Example `repo/` folders are source examples; actual `run` targets still need to be Git repositories for worktree isolation.
 - v0.4 keeps GUI as a thin PySide6 wrapper around existing CLI flows with background threads.
 - Release script uses an offline pure-Python wheel fallback when build tooling is unavailable in restricted-network environments.
+- Desktop GUI has been retired in favor of a Web GUI under `web/` using Lightswind styling.
 
 ## Errors Encountered
 

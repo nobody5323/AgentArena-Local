@@ -60,3 +60,9 @@
 - Added v0.4 tests for config, runs browser, report generation, dashboard generation, and GUI smoke import.
 - Verification passed: `python -m pytest` reported 26 passed.
 - Verification passed: `python scripts/release.py` completed with all checklist items checked.
+- Downloaded and added `lightswind@3.1.28` for the anime Web GUI direction.
+- Removed the PySide6 desktop GUI modules, test, dependency, and GUI EXE entrypoint.
+- Added `web/` React/Vite Web GUI prototype with a light anime dashboard look and vendored Lightswind CSS.
+- Updated `agentarena gui` to show Web GUI launch instructions.
+- Added Web GUI smoke tests.
+- Verification passed: `npm run build` in `web/`, `python -m pytest`, and `python scripts/release.py`.

@@ -55,7 +55,7 @@ def check_examples() -> bool:
 def check_pyproject() -> bool:
     pyproject = ROOT / "pyproject.toml"
     text = pyproject.read_text(encoding="utf-8")
-    required = ["agentarena-local", "typer", "PySide6", "agentarena ="]
+    required = ["agentarena-local", "typer", "agentarena ="]
     missing = [item for item in required if item not in text]
     if missing:
         print("pyproject missing:", ", ".join(missing))

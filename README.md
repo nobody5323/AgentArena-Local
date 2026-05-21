@@ -16,7 +16,7 @@ leaderboards plus static reports.
 - AGENTS.md A/B testing
 - Rich CLI leaderboards and historical run browser
 - Static HTML report and Plotly.js dashboard
-- PySide6 GUI for local benchmark runs
+- Bright anime-style Web GUI built with React, Vite, Tailwind, and Lightswind UI
 - PyInstaller scripts for Windows EXE builds
 
 ## Installation
@@ -25,8 +25,7 @@ leaderboards plus static reports.
 pip install -e ".[dev]"
 ```
 
-Python 3.11+ is recommended. GUI usage requires PySide6, which is included in the
-project dependencies.
+Python 3.11+ is recommended. Web GUI usage requires Node.js 18+.
 
 ## Quick Start
 
@@ -128,15 +127,18 @@ The dashboard includes total score, task type comparison, pass rate by agent,
 failure reason distribution, AGENTS.md variant comparison, and diff-vs-score
 scatter plots.
 
-## GUI Usage
+## Web GUI Usage
 
 ```powershell
 agentarena gui
+cd web
+npm install
+npm run dev
 ```
 
-The GUI lets you choose a project directory, task file, agent set, normal
-benchmark or AGENTS.md A/B mode, and variants directory. Runs execute in a
-background thread so the interface stays responsive.
+Open `http://127.0.0.1:5173`. The Web GUI is a bright anime-inspired benchmark
+console using Lightswind UI styling. It currently provides the visual shell for
+project/task selection, agent selection, leaderboard, reports, and run logs.
 
 ## Historical Runs
 
@@ -150,13 +152,11 @@ agentarena show <run_id>
 
 ```powershell
 python scripts/build_exe.py
-python scripts/build_gui_exe.py
 ```
 
 Expected outputs:
 
 - `dist/AgentArena.exe`
-- `dist/AgentArenaGUI.exe`
 
 ## Release Check
 

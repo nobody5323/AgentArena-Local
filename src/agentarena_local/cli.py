@@ -856,14 +856,19 @@ def dashboard() -> None:
 
 @app.command()
 def gui() -> None:
-    """Launch the PySide6 desktop GUI."""
-    try:
-        from agentarena_local.gui import launch_gui
-
-        raise typer.Exit(code=launch_gui())
-    except RuntimeError as exc:
-        console.print(f"[red]GUI error:[/red] {exc}")
-        raise typer.Exit(code=1) from exc
+    """Show how to launch the Web GUI."""
+    web_dir = Path.cwd() / "web"
+    if not web_dir.exists():
+        console.print("[red]Web GUI directory not found.[/red]")
+        raise typer.Exit(code=1)
+    console.print("[green]AgentArena Web GUI is ready.[/green]")
+    console.print("Run these commands:")
+    console.print("")
+    console.print("  cd web")
+    console.print("  npm install")
+    console.print("  npm run dev")
+    console.print("")
+    console.print("Then open http://127.0.0.1:5173")
 
 
 REPORT_TEMPLATE = """
