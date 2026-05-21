@@ -11,6 +11,7 @@ htmlcov/
 
 .venv/
 venv/
+node_modules/
 
 .agentarena/
 .agentarena-smoke/
