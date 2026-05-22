@@ -85,6 +85,8 @@ class CliAgentAdapter(BaseAgentAdapter):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             start_new_session=sys.platform != "win32",
         )
         if on_process is not None:
@@ -110,8 +112,8 @@ class CliAgentAdapter(BaseAgentAdapter):
             agent_name=self.name,
             command=command,
             exit_code=process.returncode,
-            stdout=stdout,
-            stderr=stderr,
+            stdout=stdout or "",
+            stderr=stderr or "",
             duration_seconds=time.monotonic() - started,
         )
 

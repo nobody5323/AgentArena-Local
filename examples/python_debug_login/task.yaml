@@ -21,6 +21,21 @@ test:
     - name: pytest
       command: pytest examples/python_debug_login/repo/tests
       timeout_seconds: 120
+baseline:
+  commands:
+    - name: fail-to-pass-before
+      command: pytest examples/python_debug_login/repo/tests/test_login_app.py::test_login_accepts_valid_password_without_storage_whitespace
+      timeout_seconds: 120
+fail_to_pass:
+  commands:
+    - name: valid-password-regression
+      command: pytest examples/python_debug_login/repo/tests/test_login_app.py::test_login_accepts_valid_password_without_storage_whitespace
+      timeout_seconds: 120
+pass_to_pass:
+  commands:
+    - name: invalid-login-regressions
+      command: pytest examples/python_debug_login/repo/tests/test_login_regression.py
+      timeout_seconds: 120
 constraints:
   - kind: max_files_changed
     value: "3"

@@ -1,8 +1,8 @@
 {
   "scripts": {
-    "dev": "npm --prefix web run dev",
-    "build": "npm --prefix web run build",
-    "preview": "npm --prefix web run preview"
+    "dev": "cd web && npm run dev",
+    "build": "node scripts/build_web.cjs",
+    "preview": "cd web && npm run preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",

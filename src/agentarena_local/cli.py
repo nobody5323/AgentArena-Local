@@ -29,11 +29,14 @@ from agentarena_local.metrics.failure_analysis import (
 )
 from agentarena_local.metrics.feature import evaluate_feature_slice
 from agentarena_local.metrics.scorer import calculate_generation_score, calculate_score
+from agentarena_local.metrics.scorer import calculate_strict_generation_score
+from agentarena_local.metrics.strict import summarize_strict_evaluation
 from agentarena_local.metrics.test_runner import CommandGroupResult, run_commands
 from agentarena_local.planning.plan_collector import save_plan
 from agentarena_local.planning.plan_report import save_planning_result
 from agentarena_local.planning.plan_scorer import score_plan
 from agentarena_local.results.browser import find_run, latest_run, list_runs
+from agentarena_local.suite import append_jsonl, completed_keys, load_suite, read_jsonl, summarize_suite
 from agentarena_local.tasks import TaskConfig, load_task
 
 app = typer.Typer(
@@ -41,6 +44,8 @@ app = typer.Typer(
     help="AgentArena Local: evaluate AI coding agents in local Git repositories.",
     no_args_is_help=True,
 )
+suite_app = typer.Typer(help="Run task suites and aggregate agent comparisons.")
+app.add_typer(suite_app, name="suite")
 console = Console()
 
 
@@ -100,7 +105,7 @@ def _instruction_for(task: TaskConfig) -> str:
 
 
 def _write_text(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+    path.write_text(content or "", encoding="utf-8")
 
 
 def _serialize_command_group(result: CommandGroupResult) -> dict[str, object]:
@@ -157,6 +162,10 @@ def _run_one_agent(
     worktree_path = worktrees_dir / worktree_key / agent_name
     worktree = None
     setup_result = CommandGroupResult()
+    baseline_result = CommandGroupResult()
+    fail_to_pass_result = CommandGroupResult()
+    pass_to_pass_result = CommandGroupResult()
+    hidden_result = CommandGroupResult()
     test_result = CommandGroupResult()
     patch = ""
     diff_stats = DiffStats([], 0, 0, 0)
@@ -167,6 +176,8 @@ def _run_one_agent(
         if agents_md_source is not None:
             shutil.copyfile(agents_md_source, worktree.path / "AGENTS.md")
         setup_result = run_commands(task.setup_commands(), worktree.path)
+        if setup_result.passed is not False and task.has_strict_evaluation():
+            baseline_result = run_commands(task.baseline_commands(), worktree.path)
 
         if setup_result.passed is False:
             agent_result = AgentExecutionResult(
@@ -191,7 +202,21 @@ def _run_one_agent(
 
         patch, diff_stats = collect_diff(worktree.path)
         if setup_result.passed is not False:
-            test_result = run_commands(task.test_commands_for_run(), worktree.path)
+            if task.has_strict_evaluation():
+                fail_to_pass_result = run_commands(task.fail_to_pass_commands(), worktree.path)
+                pass_to_pass_result = run_commands(task.pass_to_pass_commands(), worktree.path)
+                hidden_result = run_commands(task.hidden_commands(), worktree.path)
+                combined_commands = [
+                    *fail_to_pass_result.commands,
+                    *pass_to_pass_result.commands,
+                    *hidden_result.commands,
+                ]
+                combined_passed = None
+                if combined_commands:
+                    combined_passed = all(command.succeeded for command in combined_commands)
+                test_result = CommandGroupResult(commands=combined_commands, passed=combined_passed)
+            else:
+                test_result = run_commands(task.test_commands_for_run(), worktree.path)
     finally:
         if worktree is not None and not keep_worktree:
             remove_worktree(repo_root, worktree.path)
@@ -216,6 +241,12 @@ def _run_one_agent(
     planning_result: dict[str, object] | None = None
     feature_result: dict[str, object] | None = None
     warnings: list[str] = []
+    strict_result = summarize_strict_evaluation(
+        baseline=baseline_result,
+        fail_to_pass=fail_to_pass_result,
+        pass_to_pass=pass_to_pass_result,
+        hidden=hidden_result,
+    )
 
     if task.type.value == "planning":
         failures = [failure for failure in failures if failure != "no_code_changed"]
@@ -246,6 +277,40 @@ def _run_one_agent(
             "test_plan": 15 if planning_score.has_test_plan else 0,
             "risks": 15 if planning_score.has_risks else 0,
         })
+    elif strict_result.enabled:
+        if strict_result.task_valid is False and "strict_baseline_not_failing" not in failures:
+            failures.append("strict_baseline_not_failing")
+        if strict_result.fail_to_pass_passed is False and "fail_to_pass_failed" not in failures:
+            failures.append("fail_to_pass_failed")
+        if strict_result.pass_to_pass_passed is False and "pass_to_pass_failed" not in failures:
+            failures.append("pass_to_pass_failed")
+        if strict_result.hidden_passed is False and "hidden_failed" not in failures:
+            failures.append("hidden_failed")
+        feature_eval = None
+        feature_completeness = 25
+        if task.type.value == "generation":
+            feature_eval = evaluate_feature_slice(
+                diff_stats=diff_stats,
+                patch=patch,
+                expected_files_may_change=task.expected_files_may_change,
+                feature_checks=task.feature_checks,
+            )
+            failures = extend_generation_failures(
+                failures,
+                missing_required_patterns=feature_eval.missing_required_patterns,
+                unexpected_files=feature_eval.unexpected_files,
+            )
+            warnings.extend(feature_eval.warnings)
+            feature_result = feature_eval.to_dict()
+            feature_completeness = feature_eval.completeness
+        score = calculate_strict_generation_score(
+            strict=strict_result,
+            feature_completeness=feature_completeness,
+            constraints_passed=constraints_passed,
+            violations=violations,
+            diff_stats=diff_stats,
+            duration_seconds=duration,
+        )
     elif task.type.value == "generation":
         feature_eval = evaluate_feature_slice(
             diff_stats=diff_stats,
@@ -269,7 +334,17 @@ def _run_one_agent(
 
     _write_text(agent_dir / "stdout.log", agent_result.stdout)
     _write_text(agent_dir / "stderr.log", agent_result.stderr)
-    _write_text(agent_dir / "test.log", _format_command_logs(setup_result, test_result))
+    _write_text(
+        agent_dir / "test.log",
+        _format_command_logs(
+            setup_result,
+            test_result,
+            baseline_result=baseline_result,
+            fail_to_pass_result=fail_to_pass_result,
+            pass_to_pass_result=pass_to_pass_result,
+            hidden_result=hidden_result,
+        ),
+    )
     _write_text(agent_dir / "diff.patch", patch)
 
     result: dict[str, object] = {
@@ -288,8 +363,13 @@ def _run_one_agent(
         "agent_exit_code": agent_result.exit_code,
         "agent_command": agent_result.command,
         "setup": _serialize_command_group(setup_result),
+        "baseline": _serialize_command_group(baseline_result),
         "tests_passed": test_result.passed,
         "test": _serialize_command_group(test_result),
+        "strict": strict_result.to_dict(),
+        "fail_to_pass": _serialize_command_group(fail_to_pass_result),
+        "pass_to_pass": _serialize_command_group(pass_to_pass_result),
+        "hidden": _serialize_command_group(hidden_result),
         "constraints_passed": constraints_passed,
         "constraint_violations": [violation.to_dict() for violation in violations],
         "diff": diff_stats.to_dict(),
@@ -323,9 +403,24 @@ def _run_one_agent(
 def _format_command_logs(
     setup_result: CommandGroupResult,
     test_result: CommandGroupResult,
+    *,
+    baseline_result: CommandGroupResult | None = None,
+    fail_to_pass_result: CommandGroupResult | None = None,
+    pass_to_pass_result: CommandGroupResult | None = None,
+    hidden_result: CommandGroupResult | None = None,
 ) -> str:
     sections: list[str] = []
-    for label, group in (("setup", setup_result), ("test", test_result)):
+    groups = [
+        ("setup", setup_result),
+        ("baseline", baseline_result),
+        ("fail_to_pass", fail_to_pass_result),
+        ("pass_to_pass", pass_to_pass_result),
+        ("hidden", hidden_result),
+        ("test", test_result),
+    ]
+    for label, group in groups:
+        if group is None:
+            continue
         sections.append(f"# {label} commands")
         if not group.commands:
             sections.append("No commands configured.")
@@ -345,6 +440,15 @@ def _summary_markdown(result: dict[str, object]) -> str:
     assert isinstance(diff, dict)
     violations = result["constraint_violations"]
     failures = result["failures"]
+    strict = result.get("strict", {})
+    strict_lines: list[str] = []
+    if isinstance(strict, dict) and strict.get("enabled"):
+        strict_lines = [
+            f"- Resolved: {strict.get('resolved')}",
+            f"- Fail-to-pass: {strict.get('fail_to_pass_passed')}",
+            f"- Pass-to-pass: {strict.get('pass_to_pass_passed')}",
+            f"- Hidden: {strict.get('hidden_passed')}",
+        ]
     return "\n".join(
         [
             f"# {result['agent']} - {result['task']['id']}",  # type: ignore[index]
@@ -356,6 +460,7 @@ def _summary_markdown(result: dict[str, object]) -> str:
             f"- Diff lines: {diff['total_diff_lines']}",
             f"- Violations: {len(violations) if isinstance(violations, list) else 0}",
             f"- Failures: {', '.join(failures) if isinstance(failures, list) and failures else 'none'}",
+            *strict_lines,
             "",
         ]
     )
@@ -458,6 +563,58 @@ def _best_result(results: list[dict[str, object]]) -> dict[str, object] | None:
     return max(results, key=lambda item: int(item.get("score", 0)))
 
 
+def _suite_result_row(stat: object) -> list[str]:
+    hidden = getattr(stat, "hidden_pass_rate")
+    regression = getattr(stat, "regression_pass_rate")
+    return [
+        str(getattr(stat, "agent")),
+        f"{getattr(stat, 'pass_at_1') * 100:.0f}%",
+        f"{getattr(stat, 'pass_at_k') * 100:.0f}%",
+        f"{getattr(stat, 'avg_score'):.1f}",
+        f"{getattr(stat, 'median_score'):.1f}",
+        "-" if hidden is None else f"{hidden * 100:.0f}%",
+        "-" if regression is None else f"{regression * 100:.0f}%",
+        f"{getattr(stat, 'timeout_rate') * 100:.0f}%",
+        f"{getattr(stat, 'avg_duration'):.1f}s",
+        str(getattr(stat, "unique_wins")),
+    ]
+
+
+def _write_suite_report(results_file: Path, rows: list[dict[str, object]]) -> Path:
+    stats = summarize_suite(rows)
+    report_path = results_file.with_suffix(".summary.md")
+    columns = [
+        "Agent",
+        "pass@1",
+        "pass@k",
+        "Avg Score",
+        "Median",
+        "Hidden",
+        "Regression",
+        "Timeout",
+        "Avg Time",
+        "Unique Wins",
+    ]
+    lines = [
+        "# AgentArena Suite Summary",
+        "",
+        f"Results: `{results_file}`",
+        "",
+        "|" + "|".join(columns) + "|",
+        "|" + "|".join(["---"] * len(columns)) + "|",
+    ]
+    for stat in stats:
+        lines.append("|" + "|".join(_suite_result_row(stat)) + "|")
+    lines.append("")
+    lines.append("## Failure Distribution")
+    for stat in stats:
+        failures = stat.failure_distribution
+        label = ", ".join(f"{key}: {value}" for key, value in failures.items()) if failures else "none"
+        lines.append(f"- {stat.agent}: {label}")
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_path
+
+
 @app.command()
 def init(
     path: Annotated[
@@ -508,6 +665,136 @@ def validate(
         raise typer.Exit(code=1) from exc
 
     console.print(f"[green]Valid task[/green]: {task.id} ({task.type})")
+
+
+@suite_app.command("validate")
+def suite_validate(
+    suite_file: Annotated[
+        Path,
+        typer.Option("--suite", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+) -> None:
+    """Validate a suite.yaml file."""
+    try:
+        suite = load_suite(suite_file)
+    except (ValueError, ValidationError, yaml.YAMLError) as exc:
+        console.print(f"[red]Invalid suite:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+    console.print(f"[green]Valid suite[/green]: {suite.id} ({len(suite.tasks)} tasks, tries={suite.tries})")
+
+
+@suite_app.command("run")
+def suite_run(
+    suite_file: Annotated[
+        Path,
+        typer.Option("--suite", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+    agents: Annotated[
+        str,
+        typer.Option("--agents", help="Comma-separated agent names to run."),
+    ],
+    tries: Annotated[
+        int | None,
+        typer.Option("--tries", help="Override suite tries."),
+    ] = None,
+    timeout: Annotated[
+        int | None,
+        typer.Option("--timeout", help="Override agent timeout in seconds."),
+    ] = None,
+    results_file: Annotated[
+        Path | None,
+        typer.Option("--results", help="JSONL results file."),
+    ] = None,
+    resume: Annotated[
+        bool,
+        typer.Option("--resume", help="Skip completed agent/task/try rows already in the JSONL file."),
+    ] = False,
+) -> None:
+    """Run a suite and append one JSONL row per agent/task/try."""
+    config = load_config(Path.cwd())
+    try:
+        suite = load_suite(suite_file)
+    except (ValueError, ValidationError, yaml.YAMLError) as exc:
+        console.print(f"[red]Cannot run suite:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    agent_names = _parse_agent_names(None, agents)
+    effective_tries = tries if tries is not None else suite.tries
+    effective_timeout = timeout if timeout is not None else suite.timeout_seconds or config.default_timeout_seconds
+    output = results_file or config.root / ".agentarena" / "results" / f"{suite.id}_{_run_id()}.jsonl"
+    existing = read_jsonl(output) if resume else []
+    done = completed_keys(existing)
+
+    rows: list[dict[str, object]] = list(existing)
+    for task_entry in suite.tasks:
+        task_file = Path(task_entry)
+        if not task_file.is_absolute():
+            task_file = suite_file.parent / task_file
+            if not task_file.exists():
+                task_file = config.root / task_entry
+        try:
+            task = load_task(task_file)
+            repo_root = _resolve_repo(task, task_file.resolve())
+        except (ValueError, ValidationError, yaml.YAMLError, RuntimeError) as exc:
+            console.print(f"[red]Cannot load suite task {task_entry}:[/red] {exc}")
+            raise typer.Exit(code=1) from exc
+
+        for agent_name in agent_names:
+            for try_index in range(1, effective_tries + 1):
+                key = (agent_name, task.id, try_index)
+                if resume and key in done:
+                    console.print(f"[yellow]Skipping[/yellow] {agent_name} {task.id} try={try_index}")
+                    continue
+                run_root = config.runs_dir / f"{_run_id()}_{suite.id}_{task.id}_try{try_index}"
+                run_root.mkdir(parents=True, exist_ok=True)
+                console.print(f"[cyan]Suite[/cyan] {suite.id}: {agent_name} on {task.id} try={try_index}")
+                result = _run_one_agent(
+                    agent_name=agent_name,
+                    task=task,
+                    task_file=task_file.resolve(),
+                    repo_root=repo_root,
+                    run_root=run_root,
+                    runs_dir=config.runs_dir,
+                    worktrees_dir=config.root / ".agentarena" / "worktrees",
+                    keep_worktree=False,
+                    timeout=effective_timeout,
+                    config=config,
+                )
+                result["suite"] = {"id": suite.id, "suite_file": str(suite_file.resolve())}
+                result["try_index"] = try_index
+                append_jsonl(output, result)
+                rows.append(result)
+
+    report_path = _write_suite_report(output, rows)
+    console.print(f"[green]Saved suite results[/green] {output}")
+    console.print(f"[green]Saved suite summary[/green] {report_path}")
+    for stat in summarize_suite(rows):
+        console.print(
+            f"{stat.agent}: pass@1={stat.pass_at_1:.0%} "
+            f"pass@k={stat.pass_at_k:.0%} avg={stat.avg_score:.1f} "
+            f"hidden={'-' if stat.hidden_pass_rate is None else f'{stat.hidden_pass_rate:.0%}'} "
+            f"unique_wins={stat.unique_wins}"
+        )
+
+
+@suite_app.command("report")
+def suite_report(
+    results_file: Annotated[
+        Path,
+        typer.Option("--results", exists=True, file_okay=True, dir_okay=False, readable=True),
+    ],
+) -> None:
+    """Summarize a suite JSONL file."""
+    rows = read_jsonl(results_file)
+    report_path = _write_suite_report(results_file, rows)
+    table = Table(title="AgentArena Suite Summary")
+    columns = ["Agent", "pass@1", "pass@k", "Avg Score", "Median", "Hidden", "Regression", "Timeout", "Avg Time", "Unique Wins"]
+    for column in columns:
+        table.add_column(column)
+    for stat in summarize_suite(rows):
+        table.add_row(*_suite_result_row(stat))
+    console.print(table)
+    console.print(f"[green]Saved[/green] {report_path}")
 
 
 @app.command()

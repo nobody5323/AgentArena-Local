@@ -42,3 +42,55 @@ def test_task_supports_all_v0_1_types() -> None:
             }
         )
         assert task.type.value == task_type
+
+
+def test_task_supports_lightweight_swe_command_groups() -> None:
+    task = TaskConfig.model_validate(
+        {
+            "id": "strict-task",
+            "title": "Strict task",
+            "type": "generation",
+            "repo": ".",
+            "description": "Description.",
+            "instructions": "Instructions.",
+            "success_criteria": ["Criterion."],
+            "baseline": {
+                "commands": [
+                    {
+                        "name": "bug-repro-before",
+                        "command": "pytest tests/test_bug.py",
+                    }
+                ]
+            },
+            "fail_to_pass": {
+                "commands": [
+                    {
+                        "name": "bug-repro-after",
+                        "command": "pytest tests/test_bug.py",
+                    }
+                ]
+            },
+            "pass_to_pass": {
+                "commands": [
+                    {
+                        "name": "regression",
+                        "command": "pytest tests/test_existing.py",
+                    }
+                ]
+            },
+            "hidden": {
+                "commands": [
+                    {
+                        "name": "hidden",
+                        "command": "pytest tests_hidden",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert task.has_strict_evaluation() is True
+    assert task.baseline_commands()[0].name == "bug-repro-before"
+    assert task.fail_to_pass_commands()[0].command == "pytest tests/test_bug.py"
+    assert task.pass_to_pass_commands()[0].name == "regression"
+    assert task.hidden_commands()[0].name == "hidden"

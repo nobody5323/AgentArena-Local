@@ -1,0 +1,7 @@
+id: strict-smoke
+tasks:
+  - ../python_debug_login/task.yaml
+  - ../python_order_pricing/task.yaml
+tries: 1
+timeout_seconds: 420
+

@@ -67,6 +67,10 @@ class TaskConfig(BaseModel):
     instructions: str = Field(..., min_length=1)
     success_criteria: list[str] = Field(default_factory=list)
     setup: CommandGroup = Field(default_factory=CommandGroup)
+    baseline: CommandGroup = Field(default_factory=CommandGroup)
+    fail_to_pass: CommandGroup = Field(default_factory=CommandGroup)
+    pass_to_pass: CommandGroup = Field(default_factory=CommandGroup)
+    hidden: CommandGroup = Field(default_factory=CommandGroup)
     test: CommandGroup = Field(default_factory=CommandGroup)
     test_commands: list[CommandSpec] = Field(default_factory=list)
     constraints: list[Constraint] = Field(default_factory=list)
@@ -84,6 +88,26 @@ class TaskConfig(BaseModel):
 
     def setup_commands(self) -> list[CommandSpec]:
         return self.setup.commands
+
+    def baseline_commands(self) -> list[CommandSpec]:
+        return self.baseline.commands
+
+    def fail_to_pass_commands(self) -> list[CommandSpec]:
+        return self.fail_to_pass.commands
+
+    def pass_to_pass_commands(self) -> list[CommandSpec]:
+        return self.pass_to_pass.commands
+
+    def hidden_commands(self) -> list[CommandSpec]:
+        return self.hidden.commands
+
+    def has_strict_evaluation(self) -> bool:
+        return bool(
+            self.baseline.commands
+            or self.fail_to_pass.commands
+            or self.pass_to_pass.commands
+            or self.hidden.commands
+        )
 
     def test_commands_for_run(self) -> list[CommandSpec]:
         if self.test.commands:

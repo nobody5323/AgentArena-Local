@@ -1,0 +1,73 @@
+id: python-order-pricing
+title: Fix order pricing discounts and shipping
+type: debug
+repo: ../..
+description: >
+  The sample order pricing module miscalculates totals when coupons include
+  whitespace or lowercase letters, when VIP discounts should stack with coupons,
+  and when free shipping should use the discounted subtotal.
+instructions: >
+  Fix calculate_total with a focused change. Coupon codes should be normalized
+  by trimming whitespace and uppercasing. Coupon discounts apply first, then a
+  VIP discount of 5% applies to the discounted subtotal. Free shipping applies
+  when the discounted subtotal is at least 100. Tax should be calculated after
+  discounts and shipping, with rounding only on the final total.
+success_criteria:
+  - Coupon codes are trimmed and case-insensitive.
+  - VIP discount stacks after coupon discount.
+  - Free shipping uses discounted subtotal and includes exactly 100.
+  - Existing no-coupon and unknown-coupon behavior remains correct.
+  - Final total is rounded to two decimals only at the end.
+test:
+  commands:
+    - name: public-suite
+      command: pytest examples/python_order_pricing/repo/tests
+      timeout_seconds: 120
+baseline:
+  commands:
+    - name: pricing-bugs-before
+      command: pytest examples/python_order_pricing/repo/tests/test_pricing_bug.py
+      timeout_seconds: 120
+fail_to_pass:
+  commands:
+    - name: pricing-bugs-after
+      command: pytest examples/python_order_pricing/repo/tests/test_pricing_bug.py
+      timeout_seconds: 120
+pass_to_pass:
+  commands:
+    - name: pricing-regressions
+      command: pytest examples/python_order_pricing/repo/tests/test_pricing_regression.py
+      timeout_seconds: 120
+hidden:
+  commands:
+    - name: pricing-hidden-edges
+      command: pytest examples/python_order_pricing/repo/hidden_tests
+      timeout_seconds: 120
+constraints:
+  - kind: max_files_changed
+    value: "4"
+    description: Keep the pricing fix focused.
+  - kind: max_diff_lines
+    value: "160"
+    description: Avoid broad rewrites.
+  - kind: forbidden_files
+    value:
+      - "examples/python_order_pricing/task.yaml"
+      - "examples/python_order_pricing/repo/hidden_tests/**"
+expected_files_may_change:
+  - "examples/python_order_pricing/repo/src/**"
+  - "examples/python_order_pricing/repo/tests/**"
+feature_checks:
+  required_patterns:
+    - "strip"
+    - "upper"
+    - "vip"
+    - "100"
+  forbidden_patterns:
+    - "save10 "
+    - "19.99"
+metadata:
+  difficulty: medium
+  language: python
+  category: strict-debug
+
