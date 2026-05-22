@@ -16,6 +16,10 @@ node_modules/
 .agentarena/
 .agentarena-smoke/
 
+task_plan.md
+findings.md
+progress.md
+
 dist/
 build/
 *.egg-info/
